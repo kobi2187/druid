@@ -1,3 +1,8 @@
+import jnim
+
+jnimport:
+  import android.os.Build
+  import android.os.Build$VERSION
 
 type
   AndroidDeviceInfo* = object
@@ -9,8 +14,25 @@ type
     manufacturer*: string
     model*: string
 
-proc detectDeviceCapabilities*(): AndroidDeviceInfo
-  discard # todo
+proc detectApiLevel*(): int =
+  ## Get the Android API level
+  ## Example: 21 (Lollipop), 26 (Oreo), 30 (Android 11), 34 (Android 14)
+  ##
+  ## This uses Build.VERSION.SDK_INT
+  return Build$VERSION.SDK_INT.int
+
+proc detectDeviceCapabilities*(): AndroidDeviceInfo =
+  ## Detect device capabilities and hardware features
+  result.apiLevel = detectApiLevel()
+
+  # Camera2 API available on API 21+
+  result.hasCamera2Api = result.apiLevel >= 21
+
+  # TODO: Implement other capability detection
+  # - hasLowLatencyAudio: Check AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER
+  # - hasAmplitudeControl: Check Vibrator.hasAmplitudeControl()
+  # - hasGooglePlayServices: Try to load GoogleApiAvailability
+  # - manufacturer/model: Build.MANUFACTURER, Build.MODEL
 
 # template trackPermission  # TODO
 
