@@ -1,0 +1,658 @@
+# Android Manager API Mappings - Java SDK and NDK Functions
+
+This document provides comprehensive mappings of our Nim manager APIs to the underlying Android Java SDK and NDK functions that need to be called via FFI/JNI.
+
+## Core System Managers
+
+### 1. AudioManager
+
+**Java SDK Service**: `AudioManager` (via `Context.getSystemService(Context.AUDIO_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `setRingerMode(mode: RingerMode)` | `AudioManager.setRingerMode(int)` | `RINGER_MODE_NORMAL`, `RINGER_MODE_SILENT`, `RINGER_MODE_VIBRATE` | System-level |
+| `getRingerMode(): RingerMode` | `AudioManager.getRingerMode()` | Returns int | System-level |
+| `setStreamVolume(stream, volume)` | `AudioManager.setStreamVolume(int, int, int)` | streamType, index, flags | System-level |
+| `getStreamVolume(stream): int` | `AudioManager.getStreamVolume(int)` | streamType | System-level |
+| `getStreamMaxVolume(stream): int` | `AudioManager.getStreamMaxVolume(int)` | streamType | System-level |
+| `requestAudioFocus(): bool` | `AudioManager.requestAudioFocus(OnAudioFocusChangeListener, int, int)` | listener, streamType, durationHint | System-level |
+| `abandonAudioFocus()` | `AudioManager.abandonAudioFocus(OnAudioFocusChangeListener)` | listener | System-level |
+| `isMusicActive(): bool` | `AudioManager.isMusicActive()` | None | System-level |
+| `isSpeakerphoneOn(): bool` | `AudioManager.isSpeakerphoneOn()` | None | System-level |
+| `setSpeakerphoneOn(on: bool)` | `AudioManager.setSpeakerphoneOn(boolean)` | on | System-level |
+| `isBluetoothScoOn(): bool` | `AudioManager.isBluetoothScoOn()` | None | System-level |
+| `setMicrophoneMute(mute: bool)` | `AudioManager.setMicrophoneMute(boolean)` | on | System-level |
+
+**For Audio Playback (MediaPlayer instances)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `play(file: string): AudioStream` | `MediaPlayer.create(Context, Uri)` + `MediaPlayer.start()` | context, uri | Instance-level |
+| `pause(stream: AudioStream)` | `MediaPlayer.pause()` | None | Instance-level |
+| `resume(stream: AudioStream)` | `MediaPlayer.start()` | None | Instance-level |
+| `stop(stream: AudioStream)` | `MediaPlayer.stop()` | None | Instance-level |
+| `seekTo(stream, position)` | `MediaPlayer.seekTo(int)` | msec | Instance-level |
+| `setVolume(stream, volume)` | `MediaPlayer.setVolume(float, float)` | leftVolume, rightVolume | Instance-level |
+| `getDuration(stream): int` | `MediaPlayer.getDuration()` | Returns milliseconds | Instance-level |
+| `getCurrentPosition(stream): int` | `MediaPlayer.getCurrentPosition()` | Returns milliseconds | Instance-level |
+| `isPlaying(stream): bool` | `MediaPlayer.isPlaying()` | Returns boolean | Instance-level |
+| `release(stream)` | `MediaPlayer.release()` | None | Instance-level |
+
+**NDK Alternative (Low-latency audio)**: AAudio API
+| Nim Function | NDK Function | Parameters | Notes |
+|--------------|--------------|------------|-------|
+| `createLowLatencyStream()` | `AAudio_createStreamBuilder()` + `AAudioStreamBuilder_openStream()` | builder, stream | NDK AAudio |
+| `startStream()` | `AAudioStream_requestStart()` | stream | NDK AAudio |
+| `pauseStream()` | `AAudioStream_requestPause()` | stream | NDK AAudio |
+| `stopStream()` | `AAudioStream_requestStop()` | stream | NDK AAudio |
+| `writeAudioData()` | `AAudioStream_write()` | stream, buffer, numFrames, timeoutNanoseconds | NDK AAudio |
+
+### 2. VibrationManager
+
+**Java SDK Service**: `Vibrator` (via `Context.getSystemService(Context.VIBRATOR_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `vibrate(duration: Duration)` | `Vibrator.vibrate(long)` (API < 26) | milliseconds | Legacy API |
+| `vibrate(duration: Duration)` | `Vibrator.vibrate(VibrationEffect)` (API >= 26) | `VibrationEffect.createOneShot(long, int)` | Modern API |
+| `vibrate(pattern: VibrationPattern)` | `Vibrator.vibrate(long[], int)` (API < 26) | pattern array, repeat | Legacy API |
+| `vibrate(pattern: VibrationPattern)` | `Vibrator.vibrate(VibrationEffect)` (API >= 26) | `VibrationEffect.createWaveform(long[], int[], int)` | Modern API |
+| `cancel()` | `Vibrator.cancel()` | None | Both APIs |
+| `hasVibrator(): bool` | `Vibrator.hasVibrator()` | None | Both APIs |
+| `hasAmplitudeControl(): bool` | `Vibrator.hasAmplitudeControl()` | None | API >= 26 |
+
+**Predefined Effects (API >= 29)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `vibrateClick()` | `VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)` | effect constant | Predefined |
+| `vibrateDoubleClick()` | `VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)` | effect constant | Predefined |
+| `vibrateTick()` | `VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)` | effect constant | Predefined |
+| `vibrateHeavyClick()` | `VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)` | effect constant | Predefined |
+
+**Modern API (Android 12+)**: `VibratorManager`
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getVibratorManager()` | `Context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)` | context | API >= 31 |
+| `getDefaultVibrator()` | `VibratorManager.getDefaultVibrator()` | None | API >= 31 |
+
+### 3. NotificationManager
+
+**Java SDK Service**: `NotificationManager` (via `Context.getSystemService(Context.NOTIFICATION_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `createChannel(channel)` | `NotificationManager.createNotificationChannel(NotificationChannel)` | channel object | API >= 26 |
+| `notify(id, notification)` | `NotificationManager.notify(int, Notification)` | id, notification | Core function |
+| `notify(tag, id, notification)` | `NotificationManager.notify(String, int, Notification)` | tag, id, notification | With tag |
+| `cancel(id: int)` | `NotificationManager.cancel(int)` | id | Cancel by ID |
+| `cancel(tag, id)` | `NotificationManager.cancel(String, int)` | tag, id | Cancel by tag+ID |
+| `cancelAll()` | `NotificationManager.cancelAll()` | None | Cancel all |
+| `getChannels()` | `NotificationManager.getNotificationChannels()` | Returns List<NotificationChannel> | API >= 26 |
+| `deleteChannel(channelId)` | `NotificationManager.deleteNotificationChannel(String)` | channelId | API >= 26 |
+
+**Notification Building**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `createNotification()` | `NotificationCompat.Builder(Context, String)` | context, channelId | Builder pattern |
+| `setTitle(title)` | `Builder.setContentTitle(CharSequence)` | title | Builder method |
+| `setText(text)` | `Builder.setContentText(CharSequence)` | text | Builder method |
+| `setIcon(iconRes)` | `Builder.setSmallIcon(int)` | iconResourceId | Builder method |
+| `setLargeIcon(bitmap)` | `Builder.setLargeIcon(Bitmap)` | bitmap | Builder method |
+| `setPriority(priority)` | `Builder.setPriority(int)` | priority constant | Builder method |
+| `setAutoCancel(autoCancel)` | `Builder.setAutoCancel(boolean)` | autoCancel | Builder method |
+| `addAction(action)` | `Builder.addAction(int, CharSequence, PendingIntent)` | icon, title, intent | Builder method |
+| `build(): Notification` | `Builder.build()` | Returns Notification | Builder method |
+
+### 4. LocationManager
+
+**Java SDK Service**: `LocationManager` (via `Context.getSystemService(Context.LOCATION_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `isLocationEnabled(): bool` | `LocationManager.isProviderEnabled(String)` | provider name | Check GPS/Network |
+| `getLastKnownLocation(): Location` | `LocationManager.getLastKnownLocation(String)` | provider | May return null |
+| `requestLocationUpdates()` | `LocationManager.requestLocationUpdates(String, long, float, LocationListener)` | provider, minTime, minDistance, listener | Core function |
+| `removeUpdates()` | `LocationManager.removeUpdates(LocationListener)` | listener | Stop updates |
+| `getProviders(): seq[string]` | `LocationManager.getProviders(boolean)` | enabledOnly | Get available providers |
+| `getBestProvider(): string` | `LocationManager.getBestProvider(Criteria, boolean)` | criteria, enabledOnly | Best provider |
+
+**Google Play Services (Fused Location)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getFusedLocationClient()` | `LocationServices.getFusedLocationProviderClient(Activity)` | activity | Google Play Services |
+| `getLastLocation()` | `FusedLocationProviderClient.getLastLocation()` | Returns Task<Location> | Async |
+| `requestLocationUpdates()` | `FusedLocationProviderClient.requestLocationUpdates(LocationRequest, LocationCallback, Looper)` | request, callback, looper | Async |
+| `removeLocationUpdates()` | `FusedLocationProviderClient.removeLocationUpdates(LocationCallback)` | callback | Stop updates |
+
+### 5. CameraManager
+
+**Java SDK Service**: `CameraManager` (via `Context.getSystemService(Context.CAMERA_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getCameraIdList(): seq[string]` | `CameraManager.getCameraIdList()` | Returns String[] | API >= 21 |
+| `openCamera(id, callback)` | `CameraManager.openCamera(String, CameraDevice.StateCallback, Handler)` | cameraId, callback, handler | API >= 21 |
+| `getCameraCharacteristics(id)` | `CameraManager.getCameraCharacteristics(String)` | cameraId | API >= 21 |
+
+**Legacy Camera API (API < 21)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `open(): Camera` | `Camera.open()` | None | Deprecated |
+| `takePicture()` | `Camera.takePicture(ShutterCallback, PictureCallback, PictureCallback)` | callbacks | Deprecated |
+| `startPreview()` | `Camera.startPreview()` | None | Deprecated |
+| `stopPreview()` | `Camera.stopPreview()` | None | Deprecated |
+| `release()` | `Camera.release()` | None | Deprecated |
+
+### 6. SensorManager
+
+**Java SDK Service**: `SensorManager` (via `Context.getSystemService(Context.SENSOR_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getSensorList(): seq[Sensor]` | `SensorManager.getSensorList(int)` | sensorType or Sensor.TYPE_ALL | Get sensors |
+| `getDefaultSensor(type): Sensor` | `SensorManager.getDefaultSensor(int)` | sensorType | Get default sensor |
+| `registerListener()` | `SensorManager.registerListener(SensorEventListener, Sensor, int)` | listener, sensor, samplingPeriod | Start sensing |
+| `unregisterListener()` | `SensorManager.unregisterListener(SensorEventListener)` | listener | Stop sensing |
+
+**Sensor Types (Constants)**:
+```nim
+TYPE_ACCELEROMETER = 1
+TYPE_GYROSCOPE = 4  
+TYPE_MAGNETIC_FIELD = 2
+TYPE_GRAVITY = 9
+TYPE_LINEAR_ACCELERATION = 10
+TYPE_ROTATION_VECTOR = 11
+TYPE_LIGHT = 5
+TYPE_PROXIMITY = 8
+TYPE_PRESSURE = 6
+TYPE_TEMPERATURE = 7
+TYPE_HEART_RATE = 21
+TYPE_STEP_COUNTER = 19
+```
+
+## Essential Additional Managers
+
+### 7. MediaManager (Video/Streaming)
+
+**MediaPlayer (Basic Video)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `setDataSource(url)` | `MediaPlayer.setDataSource(String)` | url or path | Set media source |
+| `setDataSource(context, uri)` | `MediaPlayer.setDataSource(Context, Uri)` | context, uri | Set media source |
+| `prepareAsync()` | `MediaPlayer.prepareAsync()` | None | Async preparation |
+| `setOnPreparedListener()` | `MediaPlayer.setOnPreparedListener(OnPreparedListener)` | listener | Preparation callback |
+| `setVideoScalingMode(mode)` | `MediaPlayer.setVideoScalingMode(int)` | scaling mode | Video scaling |
+| `setDisplay(surfaceHolder)` | `MediaPlayer.setDisplay(SurfaceHolder)` | surface holder | Video output |
+
+**ExoPlayer (Advanced Streaming)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `newSimpleInstance()` | `ExoPlayer.Builder(Context).build()` | context | Create player |
+| `setMediaItem(item)` | `ExoPlayer.setMediaItem(MediaItem)` | media item | Set media |
+| `prepare()` | `ExoPlayer.prepare()` | None | Prepare player |
+| `play()` | `ExoPlayer.play()` | None | Start playback |
+| `pause()` | `ExoPlayer.pause()` | None | Pause playback |
+| `seekTo(position)` | `ExoPlayer.seekTo(long)` | position in ms | Seek to position |
+| `release()` | `ExoPlayer.release()` | None | Release resources |
+
+### 8. CryptographyManager (Security)
+
+**Android Keystore**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getKeystore()` | `KeyStore.getInstance("AndroidKeyStore")` | provider | Get keystore |
+| `generateKey(alias, algorithm)` | `KeyGenerator.getInstance(algorithm, "AndroidKeyStore")` | algorithm, provider | Generate key |
+| `getKey(alias)` | `KeyStore.getKey(String, char[])` | alias, password | Get key |
+| `encrypt(data, key)` | `Cipher.doFinal(byte[])` | data | Encrypt data |
+| `decrypt(data, key)` | `Cipher.doFinal(byte[])` | encrypted data | Decrypt data |
+
+**Key Generation**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `generateSecretKey()` | `KeyGenParameterSpec.Builder(String, int)` | alias, purposes | Build key spec |
+| `setKeySize(size)` | `Builder.setKeySize(int)` | key size in bits | Key parameters |
+| `setEncryptionPaddings()` | `Builder.setEncryptionPaddings(String...)` | padding schemes | Key parameters |
+| `setUserAuthenticationRequired()` | `Builder.setUserAuthenticationRequired(boolean)` | required | Biometric auth |
+
+### 9. DatabaseManager (Local Data)
+
+**SQLite Database**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `openDatabase(name)` | `SQLiteOpenHelper.getWritableDatabase()` | None | Get DB instance |
+| `execSQL(sql)` | `SQLiteDatabase.execSQL(String)` | sql statement | Execute SQL |
+| `rawQuery(sql, args)` | `SQLiteDatabase.rawQuery(String, String[])` | sql, selection args | Query with params |
+| `insert(table, data)` | `SQLiteDatabase.insert(String, String, ContentValues)` | table, nullColumnHack, values | Insert row |
+| `update(table, data, where)` | `SQLiteDatabase.update(String, ContentValues, String, String[])` | table, values, whereClause, whereArgs | Update rows |
+| `delete(table, where)` | `SQLiteDatabase.delete(String, String, String[])` | table, whereClause, whereArgs | Delete rows |
+| `close()` | `SQLiteDatabase.close()` | None | Close database |
+
+### 10. NetworkManager (HTTP/REST)
+
+**HTTP Client (OkHttp recommended)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `newCall(request)` | `OkHttpClient.newCall(Request)` | request | Create call |
+| `execute()` | `Call.execute()` | None | Synchronous call |
+| `enqueue(callback)` | `Call.enqueue(Callback)` | callback | Asynchronous call |
+
+**Java URL Connection (Basic)**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `openConnection()` | `URL.openConnection()` | None | Open connection |
+| `setRequestMethod(method)` | `HttpURLConnection.setRequestMethod(String)` | GET, POST, etc. | Set HTTP method |
+| `setRequestProperty(key, value)` | `HttpURLConnection.setRequestProperty(String, String)` | header name, value | Set headers |
+| `getResponseCode()` | `HttpURLConnection.getResponseCode()` | Returns int | Get status code |
+| `getInputStream()` | `HttpURLConnection.getInputStream()` | Returns InputStream | Get response |
+
+## System Services Access Pattern
+
+All Android system services follow this pattern:
+
+```java
+// Get system service
+ServiceManager service = (ServiceManager) context.getSystemService(Context.SERVICE_NAME);
+
+// Use service methods
+service.someMethod(parameters);
+```
+
+**Service Constants**:
+- `Context.AUDIO_SERVICE` → AudioManager
+- `Context.VIBRATOR_SERVICE` → Vibrator  
+- `Context.NOTIFICATION_SERVICE` → NotificationManager
+- `Context.LOCATION_SERVICE` → LocationManager
+- `Context.CAMERA_SERVICE` → CameraManager
+- `Context.SENSOR_SERVICE` → SensorManager
+- `Context.POWER_SERVICE` → PowerManager
+- `Context.CONNECTIVITY_SERVICE` → ConnectivityManager
+
+## JNI/FFI Implementation Notes
+
+### 1. Service Acquisition Pattern
+```nim
+proc getSystemService(context: JavaObject, serviceName: cstring): JavaObject =
+  # Call context.getSystemService(serviceName)
+  # Returns the system service manager object
+
+proc getAudioManager(context: JavaObject): JavaObject =
+  return getSystemService(context, "audio")
+```
+
+### 2. Method Invocation Pattern
+```nim
+proc callJavaMethod(obj: JavaObject, methodName: cstring, signature: cstring, args: varargs[JavaValue]): JavaValue =
+  # Standard JNI method invocation
+  # Gets method ID and calls via JNI
+
+proc setRingerMode(audioManager: JavaObject, mode: int) =
+  discard callJavaMethod(audioManager, "setRingerMode", "(I)V", mode.toJavaValue)
+```
+
+### 3. Callback Registration Pattern
+```nim
+proc registerCallback(manager: JavaObject, callback: proc) =
+  # Create Java callback proxy object
+  # Register with Android service
+  # Handle callbacks from Java → Nim
+```
+
+### 4. Permissions Required
+
+Many APIs require permissions in AndroidManifest.xml:
+
+- **Audio**: No special permissions for basic playback
+- **Vibration**: `<uses-permission android:name="android.permission.VIBRATE"/>`
+- **Location**: `<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>`
+- **Camera**: `<uses-permission android:name="android.permission.CAMERA"/>`
+- **Network**: `<uses-permission android:name="android.permission.INTERNET"/>`
+- **Storage**: `<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>`
+
+This comprehensive mapping provides the exact Android SDK methods and NDK functions needed to implement each Nim manager function through JNI/FFI bindings.
+
+## Remaining System Managers
+
+### 11. ActivityManager
+
+**Java SDK Service**: `ActivityManager` (via `Context.getSystemService(Context.ACTIVITY_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getMemoryInfo(): MemoryInfo` | `ActivityManager.getMemoryInfo(ActivityManager.MemoryInfo)` | memoryInfo object | System memory state |
+| `getRunningAppProcesses(): seq[ProcessInfo]` | `ActivityManager.getRunningAppProcesses()` | Returns List<RunningAppProcessInfo> | Process list |
+| `killBackgroundProcesses(packageName)` | `ActivityManager.killBackgroundProcesses(String)` | package name | Kill processes |
+| `isInForeground(): bool` | `ActivityManager.getRunningTasks(int)` + check | maxNum | Check if app foreground |
+| `getRecentTasks(maxNum): seq[TaskInfo]` | `ActivityManager.getRecentTasks(int, int)` | maxNum, flags | Recent task list |
+
+### 12. PackageManager
+
+**Java SDK Service**: `PackageManager` (via `Context.getPackageManager()`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getInstalledApplications(): seq[AppInfo]` | `PackageManager.getInstalledApplications(int)` | flags | Get installed apps |
+| `isAppInstalled(packageName): bool` | `PackageManager.getApplicationInfo(String, int)` | packageName, flags | Check if installed |
+| `getApplicationInfo(packageName)` | `PackageManager.getApplicationInfo(String, int)` | packageName, flags | Get app info |
+| `hasPermission(permission): bool` | `PackageManager.checkPermission(String, String)` | permission, packageName | Check permission |
+| `requestPermissions(permissions)` | `ActivityCompat.requestPermissions(Activity, String[], int)` | activity, permissions, requestCode | Request runtime perms |
+| `canOpenUrl(url): bool` | `PackageManager.queryIntentActivities(Intent, int)` | intent, flags | Check URL handling |
+| `getPackageInfo(packageName)` | `PackageManager.getPackageInfo(String, int)` | packageName, flags | Package details |
+
+### 13. PowerManager
+
+**Java SDK Service**: `PowerManager` (via `Context.getSystemService(Context.POWER_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `acquireWakeLock(level): WakeLock` | `PowerManager.newWakeLock(int, String)` | levelAndFlags, tag | Create wake lock |
+| `acquire()` | `WakeLock.acquire()` | None | Acquire wake lock |
+| `acquire(timeout)` | `WakeLock.acquire(long)` | timeout in ms | Acquire with timeout |
+| `release()` | `WakeLock.release()` | None | Release wake lock |
+| `isIgnoringBatteryOptimizations(): bool` | `PowerManager.isIgnoringBatteryOptimizations(String)` | packageName | Check battery opt |
+| `isDeviceIdleMode(): bool` | `PowerManager.isDeviceIdleMode()` | None | Check doze mode |
+
+**Wake Lock Levels (Constants)**:
+```nim
+PARTIAL_WAKE_LOCK = 1          # CPU stays on
+SCREEN_DIM_WAKE_LOCK = 6       # Screen stays dim  
+SCREEN_BRIGHT_WAKE_LOCK = 10   # Screen stays bright
+FULL_WAKE_LOCK = 26            # Screen + keyboard backlight
+```
+
+### 14. TelephonyManager
+
+**Java SDK Service**: `TelephonyManager` (via `Context.getSystemService(Context.TELEPHONY_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getNetworkOperator(): string` | `TelephonyManager.getNetworkOperator()` | None | Network operator |
+| `getNetworkOperatorName(): string` | `TelephonyManager.getNetworkOperatorName()` | None | Operator name |
+| `getSimState(): SimState` | `TelephonyManager.getSimState()` | Returns int | SIM card state |
+| `getPhoneType(): PhoneType` | `TelephonyManager.getPhoneType()` | Returns int | Phone type |
+| `isNetworkRoaming(): bool` | `TelephonyManager.isNetworkRoaming()` | None | Roaming status |
+| `getDeviceId(): string` | `TelephonyManager.getDeviceId()` | None | Device IMEI (requires permission) |
+| `getSubscriberId(): string` | `TelephonyManager.getSubscriberId()` | None | Subscriber ID (requires permission) |
+
+**Constants**:
+```nim
+SIM_STATE_ABSENT = 1
+SIM_STATE_READY = 5
+SIM_STATE_PIN_REQUIRED = 2
+SIM_STATE_PUK_REQUIRED = 3
+
+PHONE_TYPE_NONE = 0
+PHONE_TYPE_GSM = 1  
+PHONE_TYPE_CDMA = 2
+PHONE_TYPE_SIP = 3
+```
+
+### 15. ConnectivityManager
+
+**Java SDK Service**: `ConnectivityManager` (via `Context.getSystemService(Context.CONNECTIVITY_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getActiveNetworkInfo(): NetworkInfo` | `ConnectivityManager.getActiveNetworkInfo()` | None | Active network |
+| `isConnected(): bool` | `NetworkInfo.isConnected()` | None | Connection status |
+| `getNetworkInfo(type): NetworkInfo` | `ConnectivityManager.getNetworkInfo(int)` | network type | Specific network |
+| `isActiveNetworkMetered(): bool` | `ConnectivityManager.isActiveNetworkMetered()` | None | Check if metered |
+| `getAllNetworkInfo(): seq[NetworkInfo]` | `ConnectivityManager.getAllNetworkInfo()` | None | All networks |
+
+**Network Types (Constants)**:
+```nim
+TYPE_WIFI = 1
+TYPE_MOBILE = 0
+TYPE_BLUETOOTH = 7
+TYPE_ETHERNET = 9
+TYPE_VPN = 17
+```
+
+### 16. StorageManager
+
+**Java SDK Service**: `StorageManager` (via `Context.getSystemService(Context.STORAGE_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getStorageVolumes(): seq[StorageVolume]` | `StorageManager.getStorageVolumes()` | Returns List<StorageVolume> | Available storage |
+| `getPrimaryStorageVolume(): StorageVolume` | `StorageManager.getPrimaryStorageVolume()` | None | Primary storage |
+| `getTotalBytes(uuid): int64` | `StorageStatsManager.getTotalBytes(UUID)` | storage UUID | Total space |
+| `getAvailableBytes(uuid): int64` | `StorageStatsManager.getAvailableBytes(UUID)` | storage UUID | Available space |
+
+**Environment Class Methods**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getExternalStorageDirectory(): string` | `Environment.getExternalStorageDirectory()` | Returns File | External storage |
+| `getInternalStorageDirectory(): string` | `Context.getFilesDir()` | None | Internal files dir |
+| `isExternalStorageWritable(): bool` | `Environment.getExternalStorageState()` + check | None | Check writable |
+
+## Additional Essential Managers
+
+### 17. BluetoothManager
+
+**Java SDK Service**: `BluetoothManager` (via `Context.getSystemService(Context.BLUETOOTH_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `getBluetoothAdapter(): BluetoothAdapter` | `BluetoothManager.getAdapter()` | None | Get BT adapter |
+| `isEnabled(): bool` | `BluetoothAdapter.isEnabled()` | None | Check if enabled |
+| `enable(): bool` | `BluetoothAdapter.enable()` | None | Enable Bluetooth |
+| `startDiscovery(): bool` | `BluetoothAdapter.startDiscovery()` | None | Start device scan |
+| `cancelDiscovery(): bool` | `BluetoothAdapter.cancelDiscovery()` | None | Stop device scan |
+| `getBondedDevices(): Set[BluetoothDevice]` | `BluetoothAdapter.getBondedDevices()` | None | Paired devices |
+
+### 18. ClipboardManager
+
+**Java SDK Service**: `ClipboardManager` (via `Context.getSystemService(Context.CLIPBOARD_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `copyText(text)` | `ClipboardManager.setPrimaryClip(ClipData.newPlainText())` | label, text | Copy to clipboard |
+| `pasteText(): string` | `ClipboardManager.getPrimaryClip()` + `ClipData.getItemAt(0).getText()` | None | Get clipboard text |
+| `hasText(): bool` | `ClipboardManager.hasPrimaryClip()` | None | Check if has content |
+| `addPrimaryClipChangedListener()` | `ClipboardManager.addPrimaryClipChangedListener()` | listener | Listen for changes |
+
+### 19. DownloadManager
+
+**Java SDK Service**: `DownloadManager` (via `Context.getSystemService(Context.DOWNLOAD_SERVICE)`)
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `enqueue(request): int64` | `DownloadManager.enqueue(DownloadManager.Request)` | request object | Start download |
+| `query(query): Cursor` | `DownloadManager.query(DownloadManager.Query)` | query object | Query downloads |
+| `remove(id): int` | `DownloadManager.remove(long...)` | download IDs | Remove downloads |
+| `getUriForDownloadedFile(id): Uri` | `DownloadManager.getUriForDownloadedFile(long)` | download ID | Get downloaded file |
+
+**Request Building**:
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `setDestinationInExternalPublicDir()` | `Request.setDestinationInExternalPublicDir(String, String)` | dirType, subPath | Set download location |
+| `setTitle(title)` | `Request.setTitle(CharSequence)` | title | Set notification title |
+| `setDescription(desc)` | `Request.setDescription(CharSequence)` | description | Set notification desc |
+
+## Permission Management System
+
+Based on the research, here's a comprehensive permission system that makes Android permissions feel more like desktop development:
+
+### PermissionManager
+
+```nim
+type
+  PermissionManager* = ref object
+    context: AndroidContext
+    pendingRequests: Table[int, PermissionRequest]
+    requestCounter: int
+    
+  PermissionRequest* = ref object
+    permissions: seq[string]
+    callback: PermissionCallback
+    rationale: Option[string]
+    mandatory: bool
+    
+  PermissionCallback* = proc(granted: seq[string], denied: seq[string])
+  
+  PermissionLevel* = enum
+    plNormal,      # Granted at install time
+    plDangerous,   # Runtime permission required
+    plSignature    # System/signature permission
+    
+  PermissionCategory* = enum
+    pcCamera,
+    pcLocation, 
+    pcStorage,
+    pcMicrophone,
+    pcContacts,
+    pcPhone,
+    pcSms,
+    pcCalendar,
+    pcSensors
+```
+
+### Desktop-Like Permission API
+
+```nim
+# Simple, desktop-like interface
+proc requestCameraAccess*(pm: PermissionManager): Future[bool] =
+  return pm.requestPermission("android.permission.CAMERA", 
+    rationale = "Camera access is needed to take photos",
+    mandatory = true)
+
+proc requestLocationAccess*(pm: PermissionManager, background = false): Future[bool] =
+  let permissions = if background:
+    @["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_BACKGROUND_LOCATION"]
+  else:
+    @["android.permission.ACCESS_FINE_LOCATION"]
+  
+  return pm.requestPermissions(permissions,
+    rationale = "Location access helps provide relevant content",
+    mandatory = false)
+
+# Batch permission requests with retry
+proc requestMultiplePermissions*(pm: PermissionManager, 
+                                categories: seq[PermissionCategory],
+                                showRationale = true): Future[PermissionResult] =
+  # Automatically groups related permissions
+  # Provides clear rationale for each category
+  # Handles retries and graceful degradation
+```
+
+### Permission Helper Functions
+
+| Nim Function | Android Java SDK Method | Parameters | Notes |
+|--------------|-------------------------|------------|-------|
+| `checkPermission(permission): bool` | `ContextCompat.checkSelfPermission(Context, String)` | context, permission | Check single permission |
+| `requestPermissions(permissions)` | `ActivityCompat.requestPermissions(Activity, String[], int)` | activity, permissions, requestCode | Request multiple |
+| `shouldShowRationale(permission): bool` | `ActivityCompat.shouldShowRequestPermissionRationale(Activity, String)` | activity, permission | Check rationale needed |
+| `openAppSettings()` | `Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)` | package URI | Open app settings |
+
+### Permission Categories and Auto-Rationale
+
+```nim
+proc getPermissionsForCategory(category: PermissionCategory): seq[string] =
+  case category:
+    of pcCamera: @["android.permission.CAMERA"]
+    of pcLocation: @["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"]
+    of pcStorage: @["android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"]
+    of pcMicrophone: @["android.permission.RECORD_AUDIO"]
+    of pcContacts: @["android.permission.READ_CONTACTS", "android.permission.WRITE_CONTACTS"]
+    of pcPhone: @["android.permission.READ_PHONE_STATE", "android.permission.CALL_PHONE"]
+    of pcSms: @["android.permission.SEND_SMS", "android.permission.RECEIVE_SMS"]
+
+proc getDefaultRationale(category: PermissionCategory): string =
+  case category:
+    of pcCamera: "Camera access is needed to take photos and videos"
+    of pcLocation: "Location access helps provide relevant, location-based content"
+    of pcStorage: "Storage access is needed to save and load files"
+    of pcMicrophone: "Microphone access is needed to record audio"
+    of pcContacts: "Contact access helps you connect with friends"
+    of pcPhone: "Phone access is needed for call-related features"
+    of pcSms: "SMS access enables messaging features"
+```
+
+### Smart Permission Handling
+
+```nim
+proc requestPermissionSmart*(pm: PermissionManager, 
+                           category: PermissionCategory,
+                           mandatory: bool = false,
+                           customRationale: Option[string] = none(string)): Future[PermissionResult] =
+  # 1. Check if already granted
+  let permissions = getPermissionsForCategory(category)
+  let alreadyGranted = permissions.filterIt(pm.checkPermission(it))
+  
+  if alreadyGranted.len == permissions.len:
+    return success(PermissionResult(granted: permissions, denied: @[]))
+  
+  # 2. Check API level - only request runtime permissions on API 23+
+  if Build.VERSION.SDK_INT < 23:
+    # On older versions, permissions are granted at install time
+    return success(PermissionResult(granted: permissions, denied: @[]))
+  
+  # 3. Show rationale if needed
+  let rationale = customRationale.get(getDefaultRationale(category))
+  let needsRationale = permissions.anyIt(pm.shouldShowRationale(it))
+  
+  if needsRationale:
+    await pm.showRationaleDialog(rationale, category)
+  
+  # 4. Request permissions
+  let result = await pm.requestPermissions(permissions)
+  
+  # 5. Handle denial with retry option
+  if result.denied.len > 0 and mandatory:
+    let retryResult = await pm.showRetryDialog(category, result.denied)
+    if retryResult == DialogResult.Retry:
+      return await pm.requestPermissionSmart(category, mandatory, customRationale)
+    elif retryResult == DialogResult.Settings:
+      pm.openAppSettings()
+      
+  return result
+
+proc showRationaleDialog(pm: PermissionManager, rationale: string, category: PermissionCategory): Future[bool] =
+  # Show user-friendly dialog explaining why permission is needed
+  # Include screenshots or icons showing the feature
+  # Clear "Allow" and "Cancel" buttons
+  
+proc showRetryDialog(pm: PermissionManager, category: PermissionCategory, denied: seq[string]): Future[DialogResult] =
+  # "This feature requires [permission]. Would you like to:"
+  # - "Try Again" 
+  # - "Go to Settings"
+  # - "Continue Without" (if not mandatory)
+```
+
+### Android Manifest Integration
+
+```xml
+<!-- Automatic permission declarations based on managers used -->
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+<!-- API 23+ only permissions -->
+<uses-permission-sdk-23 android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+```
+
+### Usage Examples
+
+```nim
+# Desktop-like simplicity
+let audioManager = runtime.audio
+let success = await runtime.permissions.requestCameraAccess()
+if success:
+  let photo = await runtime.camera.takePicture()
+  
+# Graceful degradation
+let locationGranted = await runtime.permissions.requestLocationAccess()
+if locationGranted:
+  showLocationFeatures()
+else:
+  showAlternativeFeatures()
+  
+# Batch requests with clear rationale
+let result = await runtime.permissions.requestMultiplePermissions(
+  @[pcCamera, pcStorage, pcMicrophone],
+  showRationale = true
+)
+echo "Granted: ", result.granted
+echo "Denied: ", result.denied
+```
+
+This permission system makes Android permissions feel more like desktop development while handling all the complexity of runtime permissions, API level differences, and user experience best practices automatically.

@@ -1,0 +1,28 @@
+Services Actually Needed for Full App Functionality
+Core Android Services (can't avoid these):
+
+ActivityManager - app lifecycle, memory management
+PackageManager - app installation, permissions, capabilities
+PowerManager - battery optimization, doze mode handling
+ConnectivityManager - network state, WiFi/mobile detection
+
+Feature Services (when you need the feature):
+
+AudioManager - all audio playback/recording
+LocationManager - GPS, network location
+CameraManager - photo/video capture
+NotificationManager - show notifications
+SensorManager - accelerometer, gyroscope, etc.
+TelephonyManager - phone calls, SMS, carrier info
+StorageManager - file system, external storage
+ClipboardManager - copy/paste
+VibrationManager - haptic feedback
+AlarmManager - scheduled tasks, timers
+
+Optional Services (nice to have):
+
+BluetoothManager - BLE, classic Bluetooth
+NFCManager - Near Field Communication
+FingerprintManager - biometric authentication
+DownloadManager - background file downloads
+JobScheduler - background work scheduling
