@@ -6,8 +6,12 @@ Android wrapper library for Nim - Idiomatic service APIs without the GUI.
 
 Currently implemented:
 - ✅ Core AndroidRuntime with jnim integration
-- ✅ PackageManager - App info and package queries
-- ✅ NotificationManager - Local notifications with channel support
+- ✅ SdkPackageManager - App info and package queries
+- ✅ SdkNotificationManager - Local notifications with channel support
+- ✅ SdkVibrationManager - Haptic feedback with pattern support
+- ✅ SdkClipboardManager - Copy/paste operations
+
+**Note**: All managers have explicit `Sdk` prefix (SDK/Java implementations). Future `Ndk` variants will be added for performance-critical services.
 
 ## Features
 
@@ -110,7 +114,7 @@ cp libmyapp.so android/app/src/main/jniLibs/arm64-v8a/
 ```nim
 import druid
 
-let pkg = packageManager()
+let pkg = packageManager()  # Returns SdkPackageManager
 
 # Get app info
 echo pkg.getPackageName()     # "com.example.myapp"
@@ -127,7 +131,7 @@ if pkg.hasSystemFeature("android.hardware.bluetooth"):
 ```nim
 import druid
 
-let notif = notifications()
+let notif = notifications()  # Returns SdkNotificationManager
 
 # Simple notification
 let id = notif.notify("Title", "Message")
@@ -144,6 +148,53 @@ notif.notify(123, builder)
 
 # Cancel notification
 notif.cancel(123)
+```
+
+### Vibration Manager
+
+```nim
+import druid
+
+let vib = vibration()  # Returns SdkVibrationManager
+
+# Simple vibration (300ms)
+vib.vibrate(300)
+
+# Vibration with intensity (API 26+)
+vib.vibrate(300, viHard)
+
+# Pattern: double buzz
+vib.vibratePattern(@[0, 100, 100, 100])
+
+# Stop vibration
+vib.cancel()
+
+# Check if device has vibrator
+if vib.checkHasVibrator():
+  echo "Vibrator available"
+```
+
+### Clipboard Manager
+
+```nim
+import druid
+
+let cb = clipboard()  # Returns SdkClipboardManager
+
+# Copy to clipboard
+cb.setText("Hello, clipboard!")
+
+# Paste from clipboard
+let text = cb.getText()
+if text.isSome:
+  echo "Clipboard: ", text.get()
+
+# Check if has text
+if cb.hasText():
+  echo "Clipboard has content"
+
+# Clear clipboard
+cb.clear()
 ```
 
 ### Notification Channels (API 26+)
@@ -190,15 +241,16 @@ Android Framework (Java/Kotlin)
 
 ### Phase 1: Core ✅ (Current)
 - [x] AndroidRuntime with jnim
-- [x] PackageManager
-- [x] NotificationManager
+- [x] SdkPackageManager - App info and package queries
+- [x] SdkNotificationManager - Local notifications (API 26+ channels)
+- [x] SdkVibrationManager - Haptic feedback with patterns
+- [x] SdkClipboardManager - Copy/paste operations
 
 ### Phase 2: Essential Services (Next)
-- [ ] PermissionManager - Runtime permissions
-- [ ] ConnectivityManager - Network status
-- [ ] PowerManager - Battery and power
-- [ ] VibrationManager - Haptic feedback
-- [ ] ClipboardManager - Copy/paste
+- [ ] SdkPermissionManager - Runtime permissions (needs Activity integration)
+- [ ] SdkConnectivityManager - Network status monitoring
+- [ ] SdkPowerManager - Battery and power management
+- [ ] SdkStorageManager - File system access
 
 ### Phase 3: Media & Sensors
 - [ ] AudioManager - Audio playback/recording
@@ -220,9 +272,11 @@ See [ROADMAP.md](ROADMAP.md) for complete plan.
 
 1. **No GUI** - Druid handles services only. Use your own GUI library.
 2. **Clean APIs** - Nim-idiomatic, not Java-style
-3. **Version-Aware** - Automatically uses best API for device
-4. **Lazy Loading** - Services only initialized when used
-5. **No Magic** - Explicit initialization, clear ownership
+3. **Explicit Naming** - `Sdk` prefix for Java APIs, future `Ndk` for native, hybrid names auto-select
+4. **Version-Aware** - Automatically uses best API for device (e.g., VibrationEffect vs legacy Vibrator)
+5. **Lazy Loading** - Services only initialized when used
+6. **Compile-Time Features** - Track used features at compile time (future: auto-generate manifest)
+7. **No Magic** - Explicit initialization, clear ownership
 
 ## Requirements
 
