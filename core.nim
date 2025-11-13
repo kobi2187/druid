@@ -19,6 +19,7 @@ type
   SdkStorageManager* = ref object
   SdkLocationManager* = ref object
   SdkAudioManager* = ref object
+  SdkDisplayManager* = ref object
   SdkPermissionManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
@@ -50,6 +51,7 @@ type
     sdkStorageManager: Option[SdkStorageManager]
     sdkLocationManager: Option[SdkLocationManager]
     sdkAudioManager: Option[SdkAudioManager]
+    sdkDisplayManager: Option[SdkDisplayManager]
     sdkPermissionManager: Option[SdkPermissionManager]
 
     # Feature tracking

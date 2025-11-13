@@ -62,6 +62,9 @@ export location_manager
 import managers/features/AudioManager/audio_manager
 export audio_manager
 
+import managers/features/DisplayManager/display_manager
+export display_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
