@@ -1,6 +1,6 @@
 # Druid Status - Current vs Full Vision
 
-## Current Implementation (v0.1 - Alpha)
+## Current Implementation (v0.2 - Alpha)
 
 ### ✅ What's Working Now
 
@@ -11,9 +11,9 @@
 - Explicit SDK naming convention (`SdkManagerName`)
 - Activity lifecycle integration (`setCurrentActivity`, `clearCurrentActivity`)
 
-**Implemented Managers** (9 total):
+**Implemented Managers** (11 total):
 
-**Essential Services:**
+**Essential Services** (5):
 
 1. **SdkPackageManager** ✅
    - App package name, version code, version name
@@ -45,7 +45,7 @@
    - External storage state checking
    - Cache management
 
-**Feature Services:**
+**Feature Services** (6):
 
 6. **SdkNotificationManager** ✅
    - Local notifications
@@ -72,6 +72,22 @@
    - Distance and bearing calculations
    - Provider availability
    - Note: Advanced features need callback bridge (see BINDING_TODOS.md)
+
+10. **SdkAudioManager** ✅ (Basic)
+    - System audio queries (ringer mode, volume, music active)
+    - Ringer mode control
+    - Stream volume control (music, alarm, notification, etc.)
+    - Simple audio playback (MediaPlayer)
+    - Basic player controls (play, pause, stop, seek)
+    - Note: Full AudioStream object-based API is TODO (see niceapi.txt)
+
+11. **SdkDisplayManager** ✅
+    - Screen dimensions (pixels and dp)
+    - Screen density (DPI, density multiplier)
+    - Screen rotation and orientation
+    - Display refresh rate
+    - Unit conversions (dp↔px, sp↔px)
+    - Device type detection (tablet vs phone)
 
 ### API Style (Current)
 
@@ -100,6 +116,16 @@ if location().isLocationEnabled():
   let loc = location().getBestLastKnownLocation()
   if loc.isSome:
     echo "Position: ", loc.get().latitude, ", ", loc.get().longitude
+
+# Audio (basic)
+let player = audio().playSound("/sdcard/Music/song.mp3")
+player.pause()
+player.resume()
+
+# Display info
+let screen = display().getScreenInfo()
+echo "Screen: ", screen.widthPixels, "x", screen.heightPixels
+let buttonSize = display().dpToPx(48.0)  # 48dp button
 
 # Async permissions (desktop-like!)
 let granted = await permissions().requestCameraAccess()
@@ -134,8 +160,8 @@ stream.seekTo(30.seconds)
 stream.setVolume(50)
 stream.stop()
 
-# Current: Simple call (no object returned)
-# audio().play("music.mp3")  # Not implemented yet
+# Current: Simple call (basic implementation)
+let player = audio().playSound("music.mp3")
 ```
 
 ### 2. Dual Preference System
@@ -155,7 +181,8 @@ let prefs = AudioFilePrefs(
 )
 let stream = audio.play("song.mp3", prefs)
 
-# Current: No preference system yet
+# Current: No preference system yet (direct calls)
+audio().setRingerMode(rmVibrate)
 ```
 
 ### 3. Strategy Pattern (Internal)
@@ -283,15 +310,17 @@ proc myApp() =
 
 ## Gap Analysis
 
-### Current Status: Foundation (Layer 3)
+### Current Status: Foundation + Basic Managers (Phase 2 Complete, Phase 3 Started)
 
 We have:
 - ✅ Clean Nim APIs (simple functional style)
 - ✅ jnim integration working
 - ✅ Lazy manager initialization
 - ✅ API level adaptation (basic)
-- ✅ 5 working managers
+- ✅ 11 working managers (5 essential, 6 feature)
 - ✅ Desktop-like permission API
+- ✅ Essential services complete (Connectivity, Power, Storage)
+- ✅ Started on media/sensors (Location, Audio, Display)
 
 ### Missing from Full Vision
 
@@ -326,13 +355,11 @@ We have:
    - Hybrid managers that auto-select
 
 6. **More Managers**
-   - SdkConnectivityManager
-   - SdkPowerManager
-   - SdkStorageManager
-   - SdkLocationManager
-   - SdkCameraManager
-   - SdkAudioManager (with full AudioStream objects)
-   - SdkSensorManager
+   - SdkCameraManager (basic implementation started)
+   - SdkSensorManager (needs callback bridge)
+   - SdkDownloadManager
+   - SdkAlarmManager
+   - SdkTelephonyManager
 
 **Lower Priority** (nice to have):
 
@@ -345,6 +372,11 @@ We have:
    - `vibrateClick()`, `vibrateDoubleClick()`
    - Common notification styles
    - Standard camera settings
+
+9. **Callback Bridge System**
+   - Generic Java→Nim callback mechanism
+   - Required for: Location updates, Sensor data, Camera previews, Audio events
+   - See BINDING_TODOS.md for details
 
 ---
 
@@ -359,26 +391,32 @@ We have:
 1. **SdkConnectivityManager** ✅ - Network monitoring
 2. **SdkPowerManager** ✅ - Battery and power management
 3. **SdkStorageManager** ✅ - File system and storage
-4. Enhance existing managers with preference systems (deferred to later)
 
-### Phase 3 (High Value - State Management)
+### Phase 3 (In Progress - Media & Sensors) 🔄
+1. **SdkLocationManager** ✅ (basic) - GPS/location
+2. **SdkAudioManager** ✅ (basic) - Audio playback
+3. **SdkDisplayManager** ✅ - Screen information
+4. **SdkCameraManager** ⏳ - Photo/video capture (next)
+5. **SdkSensorManager** ⏳ - Device sensors (needs callback bridge)
+
+### Phase 4 (High Value - State Management)
 1. **ResurrectionManager** ⭐ - THE key innovation
 2. StateManager - Bundle serialization
 3. LifecycleManager - Activity lifecycle abstraction
 4. MemoryManager - Memory pressure handling
 
-### Phase 4 (Rich Features)
-1. **SdkAudioManager** - With AudioStream objects
-2. **SdkCameraManager** - With CameraSession objects
-3. **SdkLocationManager** - GPS/network location
-4. **SdkSensorManager** - Accelerometer, gyroscope, etc.
+### Phase 5 (Rich Features)
+1. Enhance managers with instance-based objects
+2. Add dual preference systems
+3. Implement callback bridges for continuous data
+4. Add completion/error callbacks
 
-### Phase 5 (Performance)
+### Phase 6 (Performance)
 1. **NdkAudioManager** - OpenSL ES for low-latency
 2. **NdkCameraManager** - Camera2 NDK
 3. Hybrid managers that auto-select best
 
-### Phase 6 (Polish)
+### Phase 7 (Polish)
 1. Compile-time feature tracking
 2. Auto-manifest generation
 3. Predefined patterns and styles
@@ -420,20 +458,27 @@ From the design docs, Druid's unique value propositions:
 
 ## Conclusion
 
-**Current v0.2**: Solid foundation with 8 working managers covering essential services
+**Current v0.2**: Solid foundation with 11 working managers covering essential and basic media services
 
 **Full Vision**: Sophisticated system that makes Android feel like desktop development
 
-**Gap**: Mainly missing instance-based objects, dual preferences, and ResurrectionManager
+**Gap**: Mainly missing instance-based objects, dual preferences, ResurrectionManager, and callback bridges
 
 **Completed**:
 - ✅ Phase 1: Core infrastructure with 5 feature managers
 - ✅ Phase 2: Essential services (Connectivity, Power, Storage)
+- 🔄 Phase 3: Media & Sensors (Location, Audio, Display implemented; Camera, Sensors next)
 
 **Next Steps**:
-1. Implement ResurrectionManager (Phase 3 - the game-changer!)
-2. Add media managers (Audio, Camera, Location, Sensors)
-3. Enhance existing managers with object-based control and preferences
-4. Add NDK variants for performance-critical services
+1. Continue Phase 3: Add Camera and Sensor managers (basic implementations)
+2. Implement callback bridge infrastructure (unblocks location updates, sensors, camera)
+3. Implement ResurrectionManager (Phase 4 - the game-changer!)
+4. Enhance existing managers with object-based control and preferences (Phase 5)
+5. Add NDK variants for performance-critical services (Phase 6)
+
+**Documentation**:
+- BINDING_TODOS.md: Comprehensive list of missing bindings and infrastructure needs
+- CLARIFYING_QUESTIONS.md: Design questions requiring user input
+- All managers have extensive inline documentation with examples
 
 The architecture is sound and aligns with the original vision. We're building incrementally towards the full feature set. The foundation supports everything planned - we just need to build out the pieces.
