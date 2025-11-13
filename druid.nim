@@ -56,6 +56,9 @@ export clipboard_manager
 import managers/essential/ConnectivityManager/connectivity_manager
 export connectivity_manager
 
+import managers/features/LocationManager/location_manager
+export location_manager
+
 # Version info
 const
   DruidVersionMajor* = 0

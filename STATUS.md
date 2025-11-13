@@ -11,7 +11,7 @@
 - Explicit SDK naming convention (`SdkManagerName`)
 - Activity lifecycle integration (`setCurrentActivity`, `clearCurrentActivity`)
 
-**Implemented Managers** (8 total):
+**Implemented Managers** (9 total):
 
 **Essential Services:**
 
@@ -65,6 +65,14 @@
    - Check if has text
    - Clear clipboard
 
+9. **SdkLocationManager** ✅ (Basic)
+   - Location provider checking
+   - Last known location
+   - Async current location (basic)
+   - Distance and bearing calculations
+   - Provider availability
+   - Note: Advanced features need callback bridge (see BINDING_TODOS.md)
+
 ### API Style (Current)
 
 ```nim
@@ -86,6 +94,12 @@ echo "Battery: ", battery.level, "%"
 
 let space = storage().getAvailableSpace(slInternal)
 echo "Free space: ", space div (1024*1024), " MB"
+
+# Location services
+if location().isLocationEnabled():
+  let loc = location().getBestLastKnownLocation()
+  if loc.isSome:
+    echo "Position: ", loc.get().latitude, ", ", loc.get().longitude
 
 # Async permissions (desktop-like!)
 let granted = await permissions().requestCameraAccess()

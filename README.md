@@ -18,6 +18,7 @@ Currently implemented:
 - ✅ SdkNotificationManager - Local notifications with channel support
 - ✅ SdkVibrationManager - Haptic feedback with pattern support
 - ✅ SdkClipboardManager - Copy/paste operations
+- ✅ SdkLocationManager - GPS and network location (basic features)
 
 **Note**: All managers have explicit `Sdk` prefix (SDK/Java implementations). Future `Ndk` variants will be added for performance-critical services.
 
@@ -351,6 +352,49 @@ else:
 stor.clearCache()
 ```
 
+### Location Manager
+
+```nim
+import druid
+
+let loc = location()  # Returns SdkLocationManager
+
+# Check if location is enabled
+if not loc.isLocationEnabled():
+  showEnableLocationDialog()
+
+# Get last known location (fast, may be outdated)
+let lastLoc = loc.getBestLastKnownLocation()
+if lastLoc.isSome:
+  let pos = lastLoc.get()
+  echo "Last position: ", pos.latitude, ", ", pos.longitude
+  echo "Accuracy: ", pos.accuracy, " meters"
+
+# Get current location asynchronously
+let currentLoc = await loc.getCurrentLocation("gps")
+if currentLoc.isSome:
+  let pos = currentLoc.get()
+  echo "Current: ", pos.latitude, ", ", pos.longitude
+
+# Check providers
+let providers = loc.getProviders(enabledOnly = true)
+echo "Available providers: ", providers
+
+if loc.isProviderEnabled("gps"):
+  echo "GPS is enabled"
+
+# Distance calculations
+if loc1.isSome and loc2.isSome:
+  let dist = distanceBetween(loc1.get(), loc2.get())
+  echo "Distance: ", dist / 1000.0, " km"
+
+  let bearing = bearingTo(loc1.get(), loc2.get())
+  echo "Bearing: ", bearing, "°"
+
+# Note: Location updates with callbacks require additional bindings
+# See BINDING_TODOS.md for planned features
+```
+
 ### Notification Channels (API 26+)
 
 ```nim
@@ -406,12 +450,11 @@ Android Framework (Java/Kotlin)
 - [x] SdkPowerManager - Battery and power management
 - [x] SdkStorageManager - File system access
 
-### Phase 3: Media & Sensors
+### Phase 3: Media & Sensors (In Progress)
 - [ ] AudioManager - Audio playback/recording
 - [ ] CameraManager - Photo/video capture
 - [ ] SensorManager - Device sensors
-- [ ] LocationManager - GPS/location
-- [ ] StorageManager - File system access
+- [x] SdkLocationManager - GPS/location (basic features, callbacks TODO)
 
 ### Phase 4: Advanced Services
 - [ ] BluetoothManager - BLE and classic Bluetooth
