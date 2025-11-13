@@ -1,4 +1,6 @@
-## Package Manager - Query app information and installed packages
+## SDK Package Manager - Query app information and installed packages
+##
+## Uses Android SDK PackageManager API (Java)
 ##
 ## Provides access to:
 ## - App package name, version code, version name
@@ -18,7 +20,7 @@ jnimport:
   import android.content.pm.ApplicationInfo
 
 type
-  PackageManager* = ref object
+  SdkPackageManager* = ref object
     context: JObject
     packageManager: JObject
     # Cached values
@@ -26,15 +28,15 @@ type
     versionCode: Option[int]
     versionName: Option[string]
 
-proc init*(_: typedesc[PackageManager]): PackageManager =
-  ## Initialize PackageManager with Application context
-  result = PackageManager()
+proc init*(_: typedesc[SdkPackageManager]): SdkPackageManager =
+  ## Initialize SdkPackageManager with Application context
+  result = SdkPackageManager()
   result.context = getContext()
 
   # Get PackageManager from Context
   result.packageManager = result.context.getPackageManager()
 
-proc getPackageName*(pm: PackageManager): string =
+proc getPackageName*(pm: SdkPackageManager): string =
   ## Get the app's package name
   ## Example: "com.example.myapp"
   ##
@@ -47,7 +49,7 @@ proc getPackageName*(pm: PackageManager): string =
   pm.packageName = some(name)
   return name
 
-proc getVersionCode*(pm: PackageManager): int =
+proc getVersionCode*(pm: SdkPackageManager): int =
   ## Get the app's version code (integer)
   ## Example: 42
   ##
@@ -64,7 +66,7 @@ proc getVersionCode*(pm: PackageManager): int =
   pm.versionCode = some(code)
   return code
 
-proc getVersionName*(pm: PackageManager): string =
+proc getVersionName*(pm: SdkPackageManager): string =
   ## Get the app's version name (string)
   ## Example: "1.0.5"
   ##
@@ -80,7 +82,7 @@ proc getVersionName*(pm: PackageManager): string =
   pm.versionName = some(name)
   return name
 
-proc hasSystemFeature*(pm: PackageManager, feature: string): bool =
+proc hasSystemFeature*(pm: SdkPackageManager, feature: string): bool =
   ## Check if device has a system feature
   ##
   ## Common features:
@@ -97,14 +99,14 @@ proc hasSystemFeature*(pm: PackageManager, feature: string): bool =
   return pm.packageManager.hasSystemFeature(feature.toJString).bool
 
 # Lazy accessor for AndroidRuntime
-proc packageManager*(runtime: AndroidRuntime): PackageManager =
-  ## Get or create PackageManager instance
-  if runtime.packageManager.isNone:
-    runtime.packageManager = some(PackageManager.init())
-  return runtime.packageManager.get()
+proc sdkPackageManager*(runtime: AndroidRuntime): SdkPackageManager =
+  ## Get or create SdkPackageManager instance
+  if runtime.sdkPackageManager.isNone:
+    runtime.sdkPackageManager = some(SdkPackageManager.init())
+  return runtime.sdkPackageManager.get()
 
 # Convenience global accessor
-proc packageManager*(): PackageManager =
-  ## Global accessor for PackageManager
+proc packageManager*(): SdkPackageManager =
+  ## Global accessor for SdkPackageManager
   ## Requires AndroidRuntime to be initialized
-  return runtime().packageManager()
+  return runtime().sdkPackageManager()

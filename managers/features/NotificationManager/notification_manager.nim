@@ -1,4 +1,6 @@
-## Notification Manager - Show local notifications
+## SDK Notification Manager - Show local notifications
+##
+## Uses Android SDK NotificationManager API (Java)
 ##
 ## Handles:
 ## - Creating and showing notifications
@@ -49,7 +51,7 @@ type
     priority*: NotificationImportance
     # TODO: Add actions, custom layout, etc.
 
-  NotificationManager* = ref object
+  SdkNotificationManager* = ref object
     context: JObject
     notificationManager: JObject
     apiLevel: int
@@ -59,9 +61,9 @@ const
   DEFAULT_CHANNEL_ID = "druid_default"
   DEFAULT_CHANNEL_NAME = "General Notifications"
 
-proc init*(_: typedesc[NotificationManager]): NotificationManager =
-  ## Initialize NotificationManager
-  result = NotificationManager()
+proc init*(_: typedesc[SdkNotificationManager]): SdkNotificationManager =
+  ## Initialize SdkNotificationManager
+  result = SdkNotificationManager()
   result.context = getContext()
   result.apiLevel = detectApiLevel()
   result.createdChannels = initTable[string, bool]()
@@ -79,7 +81,7 @@ proc init*(_: typedesc[NotificationManager]): NotificationManager =
       importance: niDefault
     ))
 
-proc createChannelIfNeeded(nm: NotificationManager, channel: NotificationChannel) =
+proc createChannelIfNeeded(nm: SdkNotificationManager, channel: NotificationChannel) =
   ## Create notification channel if on API 26+ and not already created
   if nm.apiLevel < 26:
     return  # Channels not supported
@@ -101,7 +103,7 @@ proc createChannelIfNeeded(nm: NotificationManager, channel: NotificationChannel
   nm.notificationManager.call("createNotificationChannel", jChannel)
   nm.createdChannels[channel.id] = true
 
-proc createChannel*(nm: NotificationManager, channel: NotificationChannel) =
+proc createChannel*(nm: SdkNotificationManager, channel: NotificationChannel) =
   ## Create a notification channel (API 26+ only)
   ##
   ## On API < 26, this is a no-op (channels not needed)
@@ -117,7 +119,7 @@ proc createChannel*(nm: NotificationManager, channel: NotificationChannel) =
 
   nm.createChannelIfNeeded(channel)
 
-proc notify*(nm: NotificationManager, notifId: int, builder: NotificationBuilder) =
+proc notify*(nm: SdkNotificationManager, notifId: int, builder: NotificationBuilder) =
   ## Show a notification with custom settings
   ##
   ## Args:
@@ -167,7 +169,7 @@ proc notify*(nm: NotificationManager, notifId: int, builder: NotificationBuilder
   let notification = compatBuilder.call("build")
   nm.notificationManager.call("notify", notifId.jint, notification)
 
-proc notify*(nm: NotificationManager, title: string, message: string): int =
+proc notify*(nm: SdkNotificationManager, title: string, message: string): int =
   ## Simple notification with just title and message
   ## Uses default channel and auto-incremented ID
   ##
@@ -191,7 +193,7 @@ proc notify*(nm: NotificationManager, title: string, message: string): int =
   nm.notify(notifId, builder)
   return notifId
 
-proc cancel*(nm: NotificationManager, notifId: int) =
+proc cancel*(nm: SdkNotificationManager, notifId: int) =
   ## Cancel/dismiss a notification
   ##
   ## Args:
@@ -199,23 +201,23 @@ proc cancel*(nm: NotificationManager, notifId: int) =
 
   nm.notificationManager.call("cancel", notifId.jint)
 
-proc cancelAll*(nm: NotificationManager) =
+proc cancelAll*(nm: SdkNotificationManager) =
   ## Cancel all notifications from this app
 
   nm.notificationManager.call("cancelAll")
 
 # Lazy accessor for AndroidRuntime
-proc notificationManager*(runtime: AndroidRuntime): NotificationManager =
-  ## Get or create NotificationManager instance
-  if runtime.notificationManager.isNone:
-    runtime.notificationManager = some(NotificationManager.init())
-  return runtime.notificationManager.get()
+proc sdkNotificationManager*(runtime: AndroidRuntime): SdkNotificationManager =
+  ## Get or create SdkNotificationManager instance
+  if runtime.sdkNotificationManager.isNone:
+    runtime.sdkNotificationManager = some(SdkNotificationManager.init())
+  return runtime.sdkNotificationManager.get()
 
 # Convenience global accessor
-proc notifications*(): NotificationManager =
-  ## Global accessor for NotificationManager
+proc notifications*(): SdkNotificationManager =
+  ## Global accessor for SdkNotificationManager
   ## Requires AndroidRuntime to be initialized
   ##
   ## Example:
   ##   notifications().notify("Title", "Message")
-  return runtime().notificationManager()
+  return runtime().sdkNotificationManager()

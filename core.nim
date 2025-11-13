@@ -6,15 +6,20 @@ import common
 import options
 import tables
 
-# Forward declarations for managers
+# Forward declarations for SDK-based managers
+# Naming convention: SdkManagerName for SDK implementations
+# Future: NdkManagerName for NDK implementations (e.g., NdkAudioManager)
 type
-  PackageManager* = ref object
-  NotificationManager* = ref object
-  AudioManager* = ref object
-  VibrationManager* = ref object
-  ConnectivityManager* = ref object
-  PowerManager* = ref object
-  PermissionManager* = ref object
+  SdkPackageManager* = ref object
+  SdkNotificationManager* = ref object
+  SdkVibrationManager* = ref object
+  SdkClipboardManager* = ref object
+  SdkConnectivityManager* = ref object
+  SdkPowerManager* = ref object
+  SdkPermissionManager* = ref object
+  # Future NDK/hybrid managers:
+  # AudioManager* = ref object  # Will auto-select NDK or SDK
+  # CameraManager* = ref object # Will auto-select NDK or SDK
 
   AndroidFeature* = enum
     afAudio, afCamera, afLocation, afStorage, afVibration,
@@ -32,14 +37,14 @@ type
     applicationContext: JObject
     currentActivity: Option[JObject]
 
-    # Manager instances (lazy-initialized)
-    packageManager: Option[PackageManager]
-    notificationManager: Option[NotificationManager]
-    audioManager: Option[AudioManager]
-    vibrationManager: Option[VibrationManager]
-    connectivityManager: Option[ConnectivityManager]
-    powerManager: Option[PowerManager]
-    permissionManager: Option[PermissionManager]
+    # SDK Manager instances (lazy-initialized)
+    sdkPackageManager: Option[SdkPackageManager]
+    sdkNotificationManager: Option[SdkNotificationManager]
+    sdkVibrationManager: Option[SdkVibrationManager]
+    sdkClipboardManager: Option[SdkClipboardManager]
+    sdkConnectivityManager: Option[SdkConnectivityManager]
+    sdkPowerManager: Option[SdkPowerManager]
+    sdkPermissionManager: Option[SdkPermissionManager]
 
     # Feature tracking
     enabledFeatures: set[AndroidFeature]
