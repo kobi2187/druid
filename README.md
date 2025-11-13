@@ -7,6 +7,7 @@ Android wrapper library for Nim - Idiomatic service APIs without the GUI.
 Currently implemented:
 - ✅ Core AndroidRuntime with jnim integration
 - ✅ SdkPackageManager - App info and package queries
+- ✅ SdkPermissionManager - Desktop-like async permission requests
 - ✅ SdkNotificationManager - Local notifications with channel support
 - ✅ SdkVibrationManager - Haptic feedback with pattern support
 - ✅ SdkClipboardManager - Copy/paste operations
@@ -172,6 +173,42 @@ vib.cancel()
 # Check if device has vibrator
 if vib.checkHasVibrator():
   echo "Vibrator available"
+```
+
+### Permission Manager (Desktop-like!)
+
+```nim
+import druid
+import asyncdispatch
+
+# Desktop-like simplicity
+proc main() {.async.} =
+  let success = await permissions().requestCameraAccess()
+  if success:
+    let photo = await camera().takePicture()
+
+  # Graceful degradation
+  let locationGranted = await permissions().requestLocationAccess()
+  if locationGranted:
+    showLocationFeatures()
+  else:
+    showAlternativeFeatures()
+
+  # Batch requests
+  let result = await permissions().requestMultiplePermissions(
+    @[CAMERA, RECORD_AUDIO, WRITE_EXTERNAL_STORAGE]
+  )
+  echo "Granted: ", result.granted
+  echo "Denied: ", result.denied
+
+  # High-level APIs
+  if await permissions().requestMicrophoneAccess():
+    audio().startRecording()
+
+  if await permissions().requestStorageAccess():
+    storage().saveFile("data.txt")
+
+waitFor main()
 ```
 
 ### Clipboard Manager

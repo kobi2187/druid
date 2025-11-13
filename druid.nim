@@ -29,9 +29,15 @@ export common
 export art
 
 # Re-export SDK managers
+
+# Essential managers
 import managers/essential/PackageManager/package_manager
 export package_manager
 
+import managers/essential/PermissionManager/permission_manager
+export permission_manager
+
+# Feature managers
 import managers/features/NotificationManager/notification_manager
 export notification_manager
 
