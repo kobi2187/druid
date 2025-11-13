@@ -37,6 +37,12 @@ export package_manager
 import managers/essential/PermissionManager/permission_manager
 export permission_manager
 
+import managers/essential/PowerManager/power_manager
+export power_manager
+
+import managers/essential/StorageManager/storage_manager
+export storage_manager
+
 # Feature managers
 import managers/features/NotificationManager/notification_manager
 export notification_manager
@@ -47,9 +53,12 @@ export vibration_manager
 import managers/features/ClipboardManager/clipboard_manager
 export clipboard_manager
 
+import managers/essential/ConnectivityManager/connectivity_manager
+export connectivity_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
-  DruidVersionMinor* = 1
+  DruidVersionMinor* = 2
   DruidVersionPatch* = 0
   DruidVersion* = $DruidVersionMajor & "." & $DruidVersionMinor & "." & $DruidVersionPatch

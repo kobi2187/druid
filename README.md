@@ -2,12 +2,19 @@
 
 Android wrapper library for Nim - Idiomatic service APIs without the GUI.
 
-## Status: Alpha (v0.1.0)
+## Status: Alpha (v0.2.0)
 
 Currently implemented:
 - ✅ Core AndroidRuntime with jnim integration
+
+**Essential Services:**
 - ✅ SdkPackageManager - App info and package queries
 - ✅ SdkPermissionManager - Desktop-like async permission requests
+- ✅ SdkConnectivityManager - Network status and monitoring
+- ✅ SdkPowerManager - Battery and power management
+- ✅ SdkStorageManager - File system and storage access
+
+**Feature Services:**
 - ✅ SdkNotificationManager - Local notifications with channel support
 - ✅ SdkVibrationManager - Haptic feedback with pattern support
 - ✅ SdkClipboardManager - Copy/paste operations
@@ -234,6 +241,116 @@ if cb.hasText():
 cb.clear()
 ```
 
+### Connectivity Manager
+
+```nim
+import druid
+
+let conn = connectivity()  # Returns SdkConnectivityManager
+
+# Check connection
+if conn.isConnected():
+  echo "Online!"
+
+# Get network type
+case conn.getNetworkType():
+of ntWifi:
+  echo "WiFi connection"
+  downloadLargeFiles()
+of ntCellular:
+  echo "Mobile data"
+  if not conn.isMetered():
+    downloadLargeFiles()
+of ntNone:
+  echo "Offline"
+else:
+  echo "Other connection"
+
+# Convenience methods
+if conn.isWifiConnected():
+  startBackgroundSync()
+
+# Full info
+let info = conn.getConnectionInfo()
+echo "Connected: ", info.isConnected
+echo "Type: ", info.networkType
+echo "Metered: ", info.isMetered
+```
+
+### Power Manager
+
+```nim
+import druid
+
+let pwr = power()  # Returns SdkPowerManager
+
+# Battery info
+let battery = pwr.getBatteryInfo()
+echo "Battery: ", battery.level, "%"
+echo "Temperature: ", battery.temperature, "°C"
+echo "Charging: ", battery.isCharging
+
+# Quick checks
+if pwr.getBatteryLevel() < 20:
+  showLowBatteryWarning()
+
+if pwr.isCharging():
+  startHeavyProcessing()
+
+# Wake locks (keep device awake)
+pwr.acquireWakeLock("download", wlPartial)
+try:
+  downloadLargeFile()
+finally:
+  pwr.releaseWakeLock("download")
+
+# Power states
+if pwr.isPowerSaveMode():
+  reduceBatteryUsage()
+
+if pwr.isDeviceIdleMode():
+  pauseBackgroundSync()
+
+# Thermal status (API 29+)
+let thermal = pwr.getThermalStatus()
+if thermal >= tsSevere:
+  stopHeavyProcessing()
+```
+
+### Storage Manager
+
+```nim
+import druid
+
+let stor = storage()  # Returns SdkStorageManager
+
+# Get paths
+let dataDir = stor.getInternalStoragePath()
+let cacheDir = stor.getCachePath()
+writeFile(dataDir / "config.json", configData)
+
+# External storage
+if stor.isExternalStorageWritable():
+  let extFiles = stor.getExternalFilesDir("Documents")
+  writeFile(extFiles / "data.txt", content)
+
+# Check space
+let info = stor.getStorageInfo(slInternal)
+echo "Available: ", info.availableBytes div (1024*1024), " MB"
+echo "Total: ", info.totalBytes div (1024*1024*1024), " GB"
+echo "Used: ", info.usedPercent, "%"
+
+# Before downloading
+let fileSize = 50 * 1024 * 1024  # 50 MB
+if stor.hasEnoughSpace(slInternal, fileSize):
+  downloadFile()
+else:
+  showInsufficientStorageError()
+
+# Clear cache
+stor.clearCache()
+```
+
 ### Notification Channels (API 26+)
 
 ```nim
@@ -276,18 +393,18 @@ Android Framework (Java/Kotlin)
 
 ## Roadmap
 
-### Phase 1: Core ✅ (Current)
+### Phase 1: Core ✅ (Complete)
 - [x] AndroidRuntime with jnim
 - [x] SdkPackageManager - App info and package queries
+- [x] SdkPermissionManager - Desktop-like async permission requests
 - [x] SdkNotificationManager - Local notifications (API 26+ channels)
 - [x] SdkVibrationManager - Haptic feedback with patterns
 - [x] SdkClipboardManager - Copy/paste operations
 
-### Phase 2: Essential Services (Next)
-- [ ] SdkPermissionManager - Runtime permissions (needs Activity integration)
-- [ ] SdkConnectivityManager - Network status monitoring
-- [ ] SdkPowerManager - Battery and power management
-- [ ] SdkStorageManager - File system access
+### Phase 2: Essential Services ✅ (Complete)
+- [x] SdkConnectivityManager - Network status monitoring
+- [x] SdkPowerManager - Battery and power management
+- [x] SdkStorageManager - File system access
 
 ### Phase 3: Media & Sensors
 - [ ] AudioManager - Audio playback/recording

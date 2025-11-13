@@ -16,6 +16,7 @@ type
   SdkClipboardManager* = ref object
   SdkConnectivityManager* = ref object
   SdkPowerManager* = ref object
+  SdkStorageManager* = ref object
   SdkPermissionManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
@@ -44,6 +45,7 @@ type
     sdkClipboardManager: Option[SdkClipboardManager]
     sdkConnectivityManager: Option[SdkConnectivityManager]
     sdkPowerManager: Option[SdkPowerManager]
+    sdkStorageManager: Option[SdkStorageManager]
     sdkPermissionManager: Option[SdkPermissionManager]
 
     # Feature tracking
