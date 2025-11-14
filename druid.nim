@@ -71,6 +71,31 @@ export download_manager
 import managers/features/InputMethodManager/input_method_manager
 export input_method_manager
 
+# System managers
+import managers/system/LifecycleManager/lifecycle_manager
+export lifecycle_manager
+
+import managers/system/StateManager/state_manager
+export state_manager
+
+import managers/system/ResurrectionManager/resurrection_manager
+export resurrection_manager
+
+import managers/system/MemoryManager/memory_manager
+export memory_manager
+
+import managers/system/ThreadManager/thread_manager
+export thread_manager
+
+import managers/system/SchedulerManager/scheduler_manager
+export scheduler_manager
+
+import managers/system/BackgroundTaskManager/background_task_manager
+export background_task_manager
+
+import managers/system/EventBusManager/event_bus_manager
+export event_bus_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
