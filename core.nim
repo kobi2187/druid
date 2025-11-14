@@ -37,6 +37,10 @@ type
   SdkSensorManager* = ref object
   SdkCameraManager* = ref object
   SdkMediaManager* = ref object
+  # Extra managers (Phase 5)
+  SdkCryptographyManager* = ref object
+  SdkFileManager* = ref object
+  SdkBiometricManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
   # CameraManager* = ref object # Will auto-select NDK or SDK
@@ -85,6 +89,10 @@ type
     sdkSensorManager: Option[SdkSensorManager]
     sdkCameraManager: Option[SdkCameraManager]
     sdkMediaManager: Option[SdkMediaManager]
+    # Extra managers
+    sdkCryptographyManager: Option[SdkCryptographyManager]
+    sdkFileManager: Option[SdkFileManager]
+    sdkBiometricManager: Option[SdkBiometricManager]
 
     # Feature tracking
     enabledFeatures: set[AndroidFeature]

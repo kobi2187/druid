@@ -109,6 +109,16 @@ export camera_manager
 import managers/features/MediaManager/media_manager
 export media_manager
 
+# Extra managers (Phase 5)
+import managers/extra/CryptographyManager/cryptography_manager
+export cryptography_manager
+
+import managers/extra/FileManager/file_manager
+export file_manager
+
+import managers/extra/BiometricManager/biometric_manager
+export biometric_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
