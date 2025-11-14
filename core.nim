@@ -23,6 +23,15 @@ type
   SdkDownloadManager* = ref object
   SdkInputMethodManager* = ref object
   SdkPermissionManager* = ref object
+  # System managers
+  SdkLifecycleManager* = ref object
+  SdkStateManager* = ref object
+  SdkResurrectionManager* = ref object
+  SdkMemoryManager* = ref object
+  SdkThreadManager* = ref object
+  SdkSchedulerManager* = ref object
+  SdkBackgroundTaskManager* = ref object
+  SdkEventBusManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
   # CameraManager* = ref object # Will auto-select NDK or SDK
@@ -57,6 +66,15 @@ type
     sdkDownloadManager: Option[SdkDownloadManager]
     sdkInputMethodManager: Option[SdkInputMethodManager]
     sdkPermissionManager: Option[SdkPermissionManager]
+    # System managers
+    sdkLifecycleManager: Option[SdkLifecycleManager]
+    sdkStateManager: Option[SdkStateManager]
+    sdkResurrectionManager: Option[SdkResurrectionManager]
+    sdkMemoryManager: Option[SdkMemoryManager]
+    sdkThreadManager: Option[SdkThreadManager]
+    sdkSchedulerManager: Option[SdkSchedulerManager]
+    sdkBackgroundTaskManager: Option[SdkBackgroundTaskManager]
+    sdkEventBusManager: Option[SdkEventBusManager]
 
     # Feature tracking
     enabledFeatures: set[AndroidFeature]
