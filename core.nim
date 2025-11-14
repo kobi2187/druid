@@ -41,6 +41,10 @@ type
   SdkCryptographyManager* = ref object
   SdkFileManager* = ref object
   SdkBiometricManager* = ref object
+  SdkBluetoothManager* = ref object
+  SdkNfcManager* = ref object
+  SdkTelephonyManager* = ref object
+  SdkAnalyticsManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
   # CameraManager* = ref object # Will auto-select NDK or SDK
@@ -93,6 +97,10 @@ type
     sdkCryptographyManager: Option[SdkCryptographyManager]
     sdkFileManager: Option[SdkFileManager]
     sdkBiometricManager: Option[SdkBiometricManager]
+    sdkBluetoothManager: Option[SdkBluetoothManager]
+    sdkNfcManager: Option[SdkNfcManager]
+    sdkTelephonyManager: Option[SdkTelephonyManager]
+    sdkAnalyticsManager: Option[SdkAnalyticsManager]
 
     # Feature tracking
     enabledFeatures: set[AndroidFeature]

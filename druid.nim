@@ -119,6 +119,18 @@ export file_manager
 import managers/extra/BiometricManager/biometric_manager
 export biometric_manager
 
+import managers/extra/BluetoothManager/bluetooth_manager
+export bluetooth_manager
+
+import managers/extra/NFCManager/nfc_manager
+export nfc_manager
+
+import managers/extra/TelephonyManager/telephony_manager
+export telephony_manager
+
+import managers/extra/AnalyticsManager/analytics_manager
+export analytics_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
