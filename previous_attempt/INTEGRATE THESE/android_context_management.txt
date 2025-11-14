@@ -1,0 +1,177 @@
+# Context Requirements by API Layer
+
+## Pure NDK APIs - NO Context Needed
+# These work directly with system services
+proc pureNdkExample() =
+  # Sensors - direct system access
+  let sensorManager = ASensorManager_getInstance()  # No context!
+  
+  # Audio - direct audio subsystem access  
+  let audioStream = AAudioStreamBuilder_openStream(...)  # No context!
+  
+  # Thermal - direct system service
+  let thermalManager = AThermal_acquireManager()  # No context!
+  
+  # Vulkan - direct GPU access
+  let vkInstance = vkCreateInstance(...)  # No context!
+
+## JNI Bridge - Context REQUIRED
+# When you need to call Java Android SDK methods
+type
+  AndroidContext* = ref object
+    jniEnv*: JNIEnvPtr
+    javaContext*: jobject  # The Android Context object
+    javaActivity*: jobject # Current Activity (if available)
+    
+proc jniBridgeExample(ctx: AndroidContext) =
+  # Getting system services via Java
+  let vibrator = ctx.getSystemService("vibrator")
+  let notificationManager = ctx.getSystemService("notification")
+  
+  # Accessing app resources
+  let resources = ctx.getResources()
+  let drawable = resources.getDrawable(R.drawable.icon)
+
+## Hybrid Approach - Smart Context Usage
+type
+  AndroidManager* = ref object
+    # Always available - pure NDK
+    sensorManager: ASensorManager
+    audioManager: Option[AAudioStreamBuilder]
+    thermalManager: Option[AThermalManager]
+    
+    # Optional - requires JNI context for Java SDK features
+    jniContext: Option[AndroidContext]
+
+proc newAndroidManager*(jniContext: AndroidContext = nil): AndroidManager =
+  new(result)
+  
+  # Pure NDK - always works
+  result.sensorManager = ASensorManager_getInstance()
+  
+  if supportsLowLatencyAudio():
+    result.audioManager = some(AAudioStreamBuilder_new())
+    
+  if supportsThermalMonitoring():
+    result.thermalManager = some(AThermal_acquireManager())
+  
+  # JNI context is optional
+  if jniContext != nil:
+    result.jniContext = some(jniContext)
+
+# Usage patterns:
+proc useNdkOnly() =
+  # No context needed - pure native
+  let manager = newAndroidManager()
+  let sensors = manager.getSensorList()
+  
+proc useHybrid(activity: jobject, env: JNIEnvPtr) =
+  # Hybrid - NDK + Java SDK access
+  let context = AndroidContext(jniEnv: env, javaActivity: activity)
+  let manager = newAndroidManager(context)
+  
+  # NDK sensors
+  let sensors = manager.getSensorList()
+  
+  # Java SDK features when needed
+  if manager.jniContext.isSome:
+    manager.showNotification("Sensor data ready")
+
+## Smart Context Detection
+proc getAndroidContext*(): Option[AndroidContext] =
+  ## Tries to get Android context from various sources
+  
+  # Method 1: From GameActivity (if using)
+  when defined(useGameActivity):
+    if gameActivityInstance != nil:
+      let env = getJNIEnv()
+      return some(AndroidContext(jniEnv: env, javaActivity: gameActivityInstance))
+  
+  # Method 2: From NativeActivity
+  when defined(useNativeActivity):
+    if nativeActivityInstance != nil:
+      let env = nativeActivityInstance.env
+      return some(AndroidContext(jniEnv: env, javaActivity: nativeActivityInstance.clazz))
+  
+  # Method 3: Manually provided by user
+  if userProvidedContext.isSome:
+    return userProvidedContext
+    
+  # No context available - NDK-only mode
+  return none(AndroidContext)
+
+## API Design - Context Optional by Default
+proc vibrate*(duration: int, context: AndroidContext = nil) =
+  ## Vibrate device - tries multiple methods
+  
+  # Try haptic feedback via input system (NDK, no context needed)
+  when hasFeature(afHapticFeedback):
+    if vibrateViaHaptics(duration):
+      return
+  
+  # Fallback to Java Vibrator service (requires context)
+  let ctx = if context != nil: some(context) else: getAndroidContext()
+  if ctx.isSome:
+    vibrateViaJava(ctx.get(), duration)
+  else:
+    echo "Vibration not available - no Java context"
+
+# Clean usage - context is abstracted away
+proc gameLoop() =
+  # Most NDK features work without thinking about context
+  let sensors = getSensorData()
+  let audioLatency = getAudioLatency()
+  let thermalStatus = getThermalStatus()
+  
+  # Java SDK features auto-detect context when needed
+  if playerScored():
+    vibrate(100)  # Will auto-find context or skip gracefully
+    showNotification("High score!")  # Same here
+
+## For Your Nim+Flutter/NimX Vision
+type
+  AndroidRuntime* = ref object
+    # Pure NDK managers - no context needed
+    sensors*: SensorManager
+    audio*: AudioManager  
+    graphics*: GraphicsManager
+    thermal*: Option[ThermalManager]
+    
+    # JNI bridge - optional for SDK features
+    jniBridge*: Option[JNIBridge]
+
+proc initAndroidRuntime*(useJavaBridge = false): AndroidRuntime =
+  new(result)
+  
+  # Always available NDK features
+  result.sensors = newSensorManager()
+  result.audio = newAudioManager() 
+  result.graphics = newGraphicsManager()
+  
+  if supportsThermalMonitoring():
+    result.thermal = some(newThermalManager())
+    
+  # Optional Java bridge for SDK features
+  if useJavaBridge:
+    if let context = getAndroidContext():
+      result.jniBridge = some(newJNIBridge(context.get()))
+
+# Your app's main entry point
+proc android_main*(app: ptr android_app) =
+  # Initialize with hybrid approach
+  let runtime = initAndroidRuntime(useJavaBridge = true)
+  
+  # Your Flutter/NimX UI runs here
+  startUI(runtime)
+  
+  # Game/app loop with full Android integration
+  while running:
+    # NDK features - fast, no context needed
+    let sensorData = runtime.sensors.getAllData()
+    let thermalStatus = runtime.thermal?.getStatus()
+    
+    # Java SDK features - when needed
+    if needsNotification:
+      runtime.jniBridge?.showNotification("Game event")
+    
+    updateUI(sensorData, thermalStatus)

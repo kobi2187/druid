@@ -1,0 +1,375 @@
+# Conditional Engine Initialization Based on Tracked Features
+
+## 1. AndroidRuntime with Conditional Engine Storage
+
+type
+  AndroidRuntime* = ref object
+    mode*: AndroidRuntimeMode
+    apiLevel*: int32
+    context*: Option[AndroidContext]
+    
+    # Engines - only initialized if corresponding features are used
+    when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+      audioEngine*: AudioEngine
+    
+    when afGraphics in usedFeatures or afVulkan in usedFeatures or afOpenGLES2 in usedFeatures:
+      graphicsEngine*: GraphicsEngine
+    
+    when afSensors in usedFeatures:
+      sensorEngine*: SensorEngine
+    
+    when afNotifications in usedFeatures:
+      notificationEngine*: NotificationEngine
+    
+    when afCamera in usedFeatures:
+      cameraEngine*: CameraEngine
+    
+    when afInput in usedFeatures or afGameController in usedFeatures:
+      inputEngine*: InputEngine
+    
+    when afVibration in usedFeatures:
+      vibrationEngine*: VibrationEngine
+    
+    when afNetwork in usedFeatures:
+      networkEngine*: NetworkEngine
+
+## 2. Conditional Engine Creation
+
+proc initAndroidRuntime*(mode = armAuto): AndroidRuntime =
+  new(result)
+  result.mode = mode
+  result.apiLevel = getCurrentApiLevel()
+  result.context = if needsJavaSDK: autoDetectContext() else: none(AndroidContext)
+  
+  echo "🔧 Initializing Android Runtime..."
+  
+  # Only initialize engines for features that are actually used
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    echo "  🎵 Initializing Audio Engine..."
+    result.audioEngine = createOptimalAudioEngine(result)
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures or afOpenGLES2 in usedFeatures:
+    echo "  🎮 Initializing Graphics Engine..."
+    result.graphicsEngine = createOptimalGraphicsEngine(result)
+  
+  when afSensors in usedFeatures:
+    echo "  📱 Initializing Sensor Engine..."
+    result.sensorEngine = createSensorEngine(result)
+  
+  when afNotifications in usedFeatures:
+    echo "  🔔 Initializing Notification Engine..."
+    result.notificationEngine = createNotificationEngine(result)
+  
+  when afCamera in usedFeatures:
+    echo "  📷 Initializing Camera Engine..."
+    result.cameraEngine = createCameraEngine(result)
+  
+  when afInput in usedFeatures or afGameController in usedFeatures:
+    echo "  🎯 Initializing Input Engine..."
+    result.inputEngine = createInputEngine(result)
+  
+  when afVibration in usedFeatures:
+    echo "  📳 Initializing Vibration Engine..."
+    result.vibrationEngine = createVibrationEngine(result)
+  
+  when afNetwork in usedFeatures:
+    echo "  🌐 Initializing Network Engine..."
+    result.networkEngine = createNetworkEngine(result)
+  
+  echo "✅ Android Runtime initialized"
+
+## 3. Smart Engine Creation Functions
+
+proc createOptimalAudioEngine(runtime: AndroidRuntime): AudioEngine =
+  # Choose best audio implementation based on capabilities and usage
+  when afLowLatencyAudio in usedFeatures:
+    if runtime.apiLevel >= 26 and isAAudioSupported():
+      echo "    → Using AAudio (low latency)"
+      result = AudioEngine(kind: aekAAudio, aaudio: newAAudioEngine())
+    elif runtime.apiLevel >= 21:
+      echo "    → Using OpenSL ES (fallback for low latency)"
+      result = AudioEngine(kind: aekOpenSLES, opensl: newOpenSLESEngine())
+    elif runtime.context.isSome:
+      echo "    → Using Java AudioTrack (final fallback)"
+      result = AudioEngine(kind: aekJavaAudio, java: newJavaAudioEngine(runtime.context.get()))
+    else:
+      raise newException(UnsupportedError, "No audio engine available")
+  else:
+    # Basic audio - prefer simplicity over performance
+    if runtime.apiLevel >= 21:
+      echo "    → Using OpenSL ES (standard audio)"
+      result = AudioEngine(kind: aekOpenSLES, opensl: newOpenSLESEngine())
+    elif runtime.context.isSome:
+      echo "    → Using Java AudioTrack"
+      result = AudioEngine(kind: aekJavaAudio, java: newJavaAudioEngine(runtime.context.get()))
+
+proc createOptimalGraphicsEngine(runtime: AndroidRuntime): GraphicsEngine =
+  when afVulkan in usedFeatures:
+    if runtime.apiLevel >= 24 and isVulkanSupported():
+      echo "    → Using Vulkan (high performance)"
+      result = GraphicsEngine(kind: gekVulkan, vulkan: newVulkanEngine())
+    elif runtime.apiLevel >= 21:
+      echo "    → Using OpenGL ES 3.0 (fallback from Vulkan)"
+      result = GraphicsEngine(kind: gekOpenGLES3, opengl: newOpenGLES3Engine())
+    else:
+      echo "    → Using OpenGL ES 2.0 (compatibility mode)"
+      result = GraphicsEngine(kind: gekOpenGLES2, opengl: newOpenGLES2Engine())
+  elif afOpenGLES3 in usedFeatures:
+    if runtime.apiLevel >= 21:
+      echo "    → Using OpenGL ES 3.0"
+      result = GraphicsEngine(kind: gekOpenGLES3, opengl: newOpenGLES3Engine())
+    else:
+      echo "    → Using OpenGL ES 2.0 (fallback)"
+      result = GraphicsEngine(kind: gekOpenGLES2, opengl: newOpenGLES2Engine())
+  else:
+    echo "    → Using OpenGL ES 2.0 (basic graphics)"
+    result = GraphicsEngine(kind: gekOpenGLES2, opengl: newOpenGLES2Engine())
+
+proc createNotificationEngine(runtime: AndroidRuntime): NotificationEngine =
+  if runtime.context.isSome:
+    echo "    → Using Android NotificationManager"
+    result = NotificationEngine(kind: nekAndroid, android: newAndroidNotificationManager(runtime.context.get()))
+  else:
+    echo "    → Using stub notifications (no Java context)"
+    result = NotificationEngine(kind: nekStub)
+
+## 4. Global Runtime Access
+
+var globalAndroidRuntime {.global.}: AndroidRuntime
+
+proc getAndroidRuntime*(): AndroidRuntime {.inline.} =
+  ## Get the global Android runtime instance
+  if globalAndroidRuntime == nil:
+    raise newException(ValueError, "Android runtime not initialized! Call initAndroidRuntime() first.")
+  return globalAndroidRuntime
+
+proc setAndroidRuntime*(runtime: AndroidRuntime) =
+  globalAndroidRuntime = runtime
+
+## 5. Manager Access to Engines
+
+type
+  AudioManager* = ref object
+    runtime: AndroidRuntime
+
+proc newAudioManager*(): AudioManager =
+  new(result)
+  result.runtime = getAndroidRuntime()
+
+proc getEngine*(manager: AudioManager): AudioEngine {.inline.} =
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    return manager.runtime.audioEngine
+  else:
+    {.error: "Audio engine not available - no audio features used".}
+
+type
+  GraphicsManager* = ref object
+    runtime: AndroidRuntime
+
+proc newGraphicsManager*(): GraphicsManager =
+  new(result)
+  result.runtime = getAndroidRuntime()
+
+proc getEngine*(manager: GraphicsManager): GraphicsEngine {.inline.} =
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    return manager.runtime.graphicsEngine
+  else:
+    {.error: "Graphics engine not available - no graphics features used".}
+
+## 6. High-Level APIs Using Conditional Access
+
+proc playAudio*(buffer: AudioBuffer) =
+  trackFeature(afAudio)
+  when afAudio in usedFeatures:
+    let manager = newAudioManager()
+    manager.getEngine().play(buffer)
+  else:
+    {.error: "This should never happen - trackFeature should ensure engine exists".}
+
+proc playAudioLowLatency*(buffer: AudioBuffer) =
+  trackFeature(afLowLatencyAudio)
+  when afLowLatencyAudio in usedFeatures:
+    let manager = newAudioManager()
+    manager.getEngine().playLowLatency(buffer)
+  else:
+    {.error: "Low latency audio not available".}
+
+proc renderFrame*(scene: Scene) =
+  trackFeature(afGraphics)
+  when afGraphics in usedFeatures:
+    let manager = newGraphicsManager()
+    manager.getEngine().render(scene)
+
+proc renderFrameVulkan*(scene: Scene) =
+  trackFeature(afVulkan)
+  when afVulkan in usedFeatures:
+    let manager = newGraphicsManager()
+    if manager.getEngine().kind == gekVulkan:
+      manager.getEngine().vulkan.render(scene)
+    else:
+      # Automatic fallback to OpenGL
+      manager.getEngine().renderFallback(scene)
+
+proc showNotification*(title, message: string) =
+  trackFeature(afNotifications)
+  when afNotifications in usedFeatures:
+    let runtime = getAndroidRuntime()
+    case runtime.notificationEngine.kind
+    of nekAndroid:
+      runtime.notificationEngine.android.show(title, message)
+    of nekStub:
+      echo "Notification (stub): ", title, " - ", message
+
+## 7. Conditional Compilation Benefits
+
+# Example 1: Audio-only app
+proc audioOnlyApp*() =
+  playAudio(loadSound("music.mp3"))
+  
+  # Only these will be compiled and initialized:
+  # - AudioEngine (OpenSL ES or AAudio)
+  # - No graphics, no notifications, no camera
+  # Minimal memory footprint!
+
+# Example 2: Graphics-heavy game
+proc graphicsGame*() =
+  initializeGraphics(preferVulkan = true)
+  renderFrame(gameScene)
+  
+  # Only these will be compiled:
+  # - GraphicsEngine (Vulkan or OpenGL)
+  # - No audio, no notifications, no sensors
+  # Optimized for graphics performance!
+
+# Example 3: Full-featured app
+proc fullFeaturedApp*() =
+  playAudio(bgMusic)                    # → AudioEngine
+  renderFrame(scene)                    # → GraphicsEngine  
+  showNotification("Ready", "Started")  # → NotificationEngine
+  let accel = getAcceleration()         # → SensorEngine
+  
+  # All engines initialized, but only the ones actually used
+
+## 8. Memory and Performance Benefits
+
+static:
+  echo "\n💾 Memory Optimization Report:"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  var engineCount = 0
+  var estimatedMemory = 0  # KB
+  
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    engineCount += 1
+    estimatedMemory += 150  # Audio engine ~150KB
+    echo "✅ Audio Engine: Included (~150KB)"
+  else:
+    echo "❌ Audio Engine: Skipped (saves ~150KB)"
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    engineCount += 1
+    estimatedMemory += 300  # Graphics engine ~300KB
+    echo "✅ Graphics Engine: Included (~300KB)"
+  else:
+    echo "❌ Graphics Engine: Skipped (saves ~300KB)"
+  
+  when afNotifications in usedFeatures:
+    engineCount += 1
+    estimatedMemory += 50   # Notification engine ~50KB
+    echo "✅ Notification Engine: Included (~50KB)"
+  else:
+    echo "❌ Notification Engine: Skipped (saves ~50KB)"
+  
+  when afSensors in usedFeatures:
+    engineCount += 1
+    estimatedMemory += 75   # Sensor engine ~75KB
+    echo "✅ Sensor Engine: Included (~75KB)"
+  else:
+    echo "❌ Sensor Engine: Skipped (saves ~75KB)"
+  
+  when afCamera in usedFeatures:
+    engineCount += 1
+    estimatedMemory += 200  # Camera engine ~200KB
+    echo "✅ Camera Engine: Included (~200KB)"
+  else:
+    echo "❌ Camera Engine: Skipped (saves ~200KB)"
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Total Engines: ", engineCount
+  echo "💾 Estimated Memory: ~", estimatedMemory, "KB"
+  echo "⚡ Runtime Overhead: Minimal (engines pre-selected at compile time)"
+
+## 9. Engine Lifetime Management
+
+proc shutdownAndroidRuntime*() =
+  let runtime = getAndroidRuntime()
+  
+  echo "🔧 Shutting down Android Runtime..."
+  
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    echo "  🎵 Shutting down Audio Engine..."
+    runtime.audioEngine.shutdown()
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    echo "  🎮 Shutting down Graphics Engine..."
+    runtime.graphicsEngine.shutdown()
+  
+  when afCamera in usedFeatures:
+    echo "  📷 Shutting down Camera Engine..."
+    runtime.cameraEngine.shutdown()
+  
+  # ... other engines
+  
+  echo "✅ Android Runtime shutdown complete"
+
+## 10. Advanced Conditional Features
+
+# Feature dependencies - some features imply others
+template trackFeatureWithDependencies*(feature: AndroidFeature) =
+  trackFeature(feature)
+  
+  # Auto-track dependencies
+  static:
+    case feature
+    of afLowLatencyAudio:
+      usedFeatures.incl(afAudio)  # Low latency implies basic audio
+    of afVulkan:
+      usedFeatures.incl(afGraphics)  # Vulkan implies graphics
+    of afGameController:
+      usedFeatures.incl(afInput)  # Game controller implies input
+    else:
+      discard
+
+# Smart feature combinations
+proc enableProAudioMode*() =
+  trackFeatureWithDependencies(afLowLatencyAudio)
+  trackFeature(afAudioEffects)
+  # This ensures both basic audio AND low latency engines are available
+
+proc enableGameMode*() =
+  trackFeatureWithDependencies(afGameController)
+  trackFeatureWithDependencies(afVulkan)
+  trackFeature(afVibration)
+  # This creates a complete gaming stack
+
+## 11. Usage Example with Conditional Optimization
+
+proc optimizedExample*() =
+  # This app only uses audio and notifications
+  playAudio(loadSound("alert.wav"))
+  showNotification("Alert", "Important message")
+
+# Compile-time result:
+# 💾 Memory Optimization Report:
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ✅ Audio Engine: Included (~150KB)
+# ❌ Graphics Engine: Skipped (saves ~300KB)
+# ✅ Notification Engine: Included (~50KB)
+# ❌ Sensor Engine: Skipped (saves ~75KB)
+# ❌ Camera Engine: Skipped (saves ~200KB)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📊 Total Engines: 2
+# 💾 Estimated Memory: ~200KB (saved ~625KB!)
+# ⚡ Runtime Overhead: Minimal
+
+# vs. a traditional "everything included" approach that would use ~825KB

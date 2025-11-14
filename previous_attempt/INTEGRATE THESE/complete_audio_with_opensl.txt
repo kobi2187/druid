@@ -1,0 +1,510 @@
+# Adding OpenSL ES to the Audio Implementation
+
+## ============================================================================
+## LAYER 1: Raw OpenSL ES Bindings (android/raw/ndk/opensl.nim) 
+## ============================================================================
+
+when defined(android):
+  type
+    SLObjectItf* {.importc, header: "SLES/OpenSLES.h".} = pointer
+    SLEngineItf* {.importc, header: "SLES/OpenSLES.h".} = pointer  
+    SLPlayItf* {.importc, header: "SLES/OpenSLES.h".} = pointer
+    SLBufferQueueItf* {.importc, header: "SLES/OpenSLES.h".} = pointer
+    SLVolumeItf* {.importc, header: "SLES/OpenSLES.h".} = pointer
+    SLresult* {.importc, header: "SLES/OpenSLES.h".} = uint32
+    SLuint32* {.importc, header: "SLES/OpenSLES.h".} = uint32
+    SLmillisecond* {.importc, header: "SLES/OpenSLES.h".} = uint32
+    SLboolean* {.importc, header: "SLES/OpenSLES.h".} = uint32
+
+  const
+    SL_RESULT_SUCCESS* {.importc, header: "SLES/OpenSLES.h".} = 0'u32
+    SL_RESULT_PRECONDITIONS_VIOLATE* {.importc, header: "SLES/OpenSLES.h".} = 1'u32
+    SL_RESULT_PARAMETER_INVALID* {.importc, header: "SLES/OpenSLES.h".} = 2'u32
+    SL_RESULT_MEMORY_FAILURE* {.importc, header: "SLES/OpenSLES.h".} = 3'u32
+    SL_RESULT_RESOURCE_ERROR* {.importc, header: "SLES/OpenSLES.h".} = 4'u32
+    SL_RESULT_RESOURCE_LOST* {.importc, header: "SLES/OpenSLES.h".} = 5'u32
+    SL_RESULT_IO_ERROR* {.importc, header: "SLES/OpenSLES.h".} = 6'u32
+    
+    SL_PLAYSTATE_STOPPED* {.importc, header: "SLES/OpenSLES.h".} = 1'u32
+    SL_PLAYSTATE_PAUSED* {.importc, header: "SLES/OpenSLES.h".} = 2'u32
+    SL_PLAYSTATE_PLAYING* {.importc, header: "SLES/OpenSLES.h".} = 3'u32
+
+  # Engine functions
+  proc slCreateEngine*(pEngine: ptr SLObjectItf, numOptions: SLuint32, pEngineOptions: pointer, 
+                      numInterfaces: SLuint32, pInterfaceIds: pointer, pInterfaceRequired: ptr SLboolean): SLresult 
+                      {.importc, dynlib: "OpenSLES".}
+
+  # Object interface functions  
+  proc slObjectItf_Realize*(self: SLObjectItf, async: SLboolean): SLresult {.importc: "(*((SLObjectItf)self))->Realize".}
+  proc slObjectItf_GetInterface*(self: SLObjectItf, iid: pointer, pInterface: pointer): SLresult {.importc: "(*((SLObjectItf)self))->GetInterface".}
+  proc slObjectItf_Destroy*(self: SLObjectItf) {.importc: "(*((SLObjectItf)self))->Destroy".}
+
+  # Engine interface functions
+  proc slEngineItf_CreateAudioPlayer*(self: SLEngineItf, pPlayer: ptr SLObjectItf, pPlayerSrc: pointer, 
+                                      pPlayerSink: pointer, numInterfaces: SLuint32, pInterfaceIds: pointer, 
+                                      pInterfaceRequired: ptr SLboolean): SLresult {.importc: "(*((SLEngineItf)self))->CreateAudioPlayer".}
+
+  # Play interface functions
+  proc slPlayItf_SetPlayState*(self: SLPlayItf, state: SLuint32): SLresult {.importc: "(*((SLPlayItf)self))->SetPlayState".}
+  proc slPlayItf_GetPlayState*(self: SLPlayItf, pState: ptr SLuint32): SLresult {.importc: "(*((SLPlayItf)self))->GetPlayState".}
+
+  # Buffer queue interface functions
+  proc slBufferQueueItf_Enqueue*(self: SLBufferQueueItf, pBuffer: pointer, size: SLuint32): SLresult {.importc: "(*((SLBufferQueueItf)self))->Enqueue".}
+  proc slBufferQueueItf_Clear*(self: SLBufferQueueItf): SLresult {.importc: "(*((SLBufferQueueItf)self))->Clear".}
+
+## ============================================================================
+## LAYER 2: Safe OpenSL ES Wrappers (android/safe/ndk/opensl.nim)
+## ============================================================================
+
+import ../raw/ndk/opensl
+import ../../core
+import std/[options, strformat]
+
+type
+  OpenSLError* = object of AndroidError
+    slResult*: SLresult
+
+  SafeOpenSLEngine* = ref object
+    engineObject: SLObjectItf
+    engineInterface: SLEngineItf
+    isInitialized: bool
+
+  SafeOpenSLPlayer* = ref object
+    playerObject: SLObjectItf
+    playInterface: SLPlayItf
+    bufferQueueInterface: SLBufferQueueItf
+    volumeInterface: SLVolumeItf
+    isInitialized: bool
+    sampleRate: int32
+    channelCount: int32
+
+proc openSLResultToString(result: SLresult): string =
+  ## Convert OpenSL ES result to string
+  # Implementation: Map OpenSL error codes to descriptive strings
+  case result
+  of SL_RESULT_SUCCESS: "Success"
+  of SL_RESULT_PRECONDITIONS_VIOLATE: "Preconditions violated"
+  of SL_RESULT_PARAMETER_INVALID: "Invalid parameter"
+  of SL_RESULT_MEMORY_FAILURE: "Memory allocation failed"
+  of SL_RESULT_RESOURCE_ERROR: "Resource error"
+  of SL_RESULT_RESOURCE_LOST: "Resource lost"
+  of SL_RESULT_IO_ERROR: "I/O error"
+  else: &"Unknown OpenSL error ({result})"
+
+proc createOpenSLEngine*(): Result[SafeOpenSLEngine, OpenSLError] =
+  ## Create OpenSL ES engine with error handling
+  # Implementation: Create engine object, realize it, get interface
+  
+  if getApiLevel() < 21:
+    return err(OpenSLError(
+      kind: aekApiTooOld,
+      msg: "OpenSL ES requires Android API level 21 or higher"
+    ))
+
+  var engineObject: SLObjectItf
+  let result = slCreateEngine(engineObject.addr, 0, nil, 0, nil, nil)
+  
+  if result != SL_RESULT_SUCCESS:
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to create OpenSL engine: {openSLResultToString(result)}",
+      slResult: result
+    ))
+
+  # Realize the engine object
+  let realizeResult = slObjectItf_Realize(engineObject, SL_BOOLEAN_FALSE)
+  if realizeResult != SL_RESULT_SUCCESS:
+    slObjectItf_Destroy(engineObject)
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to realize OpenSL engine: {openSLResultToString(realizeResult)}",
+      slResult: realizeResult
+    ))
+
+  # Get the engine interface
+  var engineInterface: SLEngineItf
+  let interfaceResult = slObjectItf_GetInterface(engineObject, SL_IID_ENGINE.addr, engineInterface.addr)
+  if interfaceResult != SL_RESULT_SUCCESS:
+    slObjectItf_Destroy(engineObject)
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to get engine interface: {openSLResultToString(interfaceResult)}",
+      slResult: interfaceResult
+    ))
+
+  ok(SafeOpenSLEngine(
+    engineObject: engineObject,
+    engineInterface: engineInterface,
+    isInitialized: true
+  ))
+
+proc createAudioPlayer*(engine: SafeOpenSLEngine, sampleRate: int32, channelCount: int32): Result[SafeOpenSLPlayer, OpenSLError] =
+  ## Create OpenSL ES audio player with validation
+  # Implementation: Configure audio source/sink, create player, get interfaces
+  
+  if not engine.isInitialized:
+    return err(OpenSLError(
+      kind: aekNotInitialized,
+      msg: "OpenSL engine not initialized"
+    ))
+
+  # Configure audio source and sink (simplified)
+  var playerObject: SLObjectItf
+  let result = slEngineItf_CreateAudioPlayer(
+    engine.engineInterface, 
+    playerObject.addr,
+    nil, # audio source config
+    nil, # audio sink config  
+    0, nil, nil
+  )
+
+  if result != SL_RESULT_SUCCESS:
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to create audio player: {openSLResultToString(result)}",
+      slResult: result
+    ))
+
+  # Realize the player
+  let realizeResult = slObjectItf_Realize(playerObject, SL_BOOLEAN_FALSE)
+  if realizeResult != SL_RESULT_SUCCESS:
+    slObjectItf_Destroy(playerObject)
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to realize audio player: {openSLResultToString(realizeResult)}",
+      slResult: realizeResult
+    ))
+
+  # Get interfaces (simplified - real implementation would get all needed interfaces)
+  var playInterface: SLPlayItf
+  let playResult = slObjectItf_GetInterface(playerObject, SL_IID_PLAY.addr, playInterface.addr)
+  if playResult != SL_RESULT_SUCCESS:
+    slObjectItf_Destroy(playerObject)
+    return err(OpenSLError(
+      kind: aekInitFailed,
+      msg: &"Failed to get play interface: {openSLResultToString(playResult)}",
+      slResult: playResult
+    ))
+
+  ok(SafeOpenSLPlayer(
+    playerObject: playerObject,
+    playInterface: playInterface,
+    isInitialized: true,
+    sampleRate: sampleRate,
+    channelCount: channelCount
+  ))
+
+proc play*(player: SafeOpenSLPlayer): Result[void, OpenSLError] =
+  ## Start OpenSL ES playback
+  # Implementation: Set play state to playing
+  
+  if not player.isInitialized:
+    return err(OpenSLError(
+      kind: aekNotInitialized,
+      msg: "OpenSL player not initialized"
+    ))
+
+  let result = slPlayItf_SetPlayState(player.playInterface, SL_PLAYSTATE_PLAYING)
+  if result != SL_RESULT_SUCCESS:
+    return err(OpenSLError(
+      kind: aekRuntimeError,
+      msg: &"Failed to start playback: {openSLResultToString(result)}",
+      slResult: result
+    ))
+
+  ok()
+
+proc enqueueBuffer*(player: SafeOpenSLPlayer, buffer: seq[byte]): Result[void, OpenSLError] =
+  ## Enqueue audio buffer for playback
+  # Implementation: Enqueue buffer via buffer queue interface
+  
+  if not player.isInitialized:
+    return err(OpenSLError(
+      kind: aekNotInitialized,
+      msg: "OpenSL player not initialized"
+    ))
+
+  if buffer.len == 0:
+    return ok()
+
+  let result = slBufferQueueItf_Enqueue(
+    player.bufferQueueInterface,
+    buffer[0].unsafeAddr,
+    buffer.len.SLuint32
+  )
+
+  if result != SL_RESULT_SUCCESS:
+    return err(OpenSLError(
+      kind: aekRuntimeError,
+      msg: &"Failed to enqueue buffer: {openSLResultToString(result)}",
+      slResult: result
+    ))
+
+  ok()
+
+proc close*(player: SafeOpenSLPlayer) =
+  ## Close OpenSL player and cleanup
+  # Implementation: Destroy player object
+  
+  if player.isInitialized:
+    if player.playerObject != nil:
+      slObjectItf_Destroy(player.playerObject)
+    player.isInitialized = false
+
+proc close*(engine: SafeOpenSLEngine) =
+  ## Close OpenSL engine and cleanup  
+  # Implementation: Destroy engine object
+  
+  if engine.isInitialized:
+    if engine.engineObject != nil:
+      slObjectItf_Destroy(engine.engineObject)
+    engine.isInitialized = false
+
+## ============================================================================
+## LAYER 3: Idiomatic OpenSL ES API (android/idiomatic/ndk/opensl.nim)
+## ============================================================================
+
+import ../../safe/ndk/opensl
+import ../../core
+
+type
+  OpenSLAudioManager* = ref object
+    runtime: AndroidRuntime
+    engine: SafeOpenSLEngine
+    activePlayers: seq[OpenSLAudioEngine]
+
+  OpenSLAudioEngine* = ref object
+    player: SafeOpenSLPlayer
+    isPlaying: bool
+    volume: float32
+    sampleRate: int32
+    channelCount: int32
+
+proc newOpenSLAudioManager*(runtime: AndroidRuntime): OpenSLAudioManager =
+  ## Create OpenSL ES audio manager
+  # Implementation: Create OpenSL engine, wrap in manager
+  
+  let engineResult = createOpenSLEngine()
+  case engineResult
+  of ok(engine):
+    OpenSLAudioManager(
+      runtime: runtime,
+      engine: engine,
+      activePlayers: @[]
+    )
+  of err(error):
+    raise newException(AudioError, error.msg)
+
+proc createEngine*(manager: OpenSLAudioManager, sampleRate = 44100, channelCount = 2): OpenSLAudioEngine =
+  ## Create OpenSL ES audio engine
+  # Implementation: Create player, wrap in engine, add to manager
+  
+  let playerResult = manager.engine.createAudioPlayer(sampleRate, channelCount)
+  case playerResult
+  of ok(player):
+    let engine = OpenSLAudioEngine(
+      player: player,
+      isPlaying: false,
+      volume: 1.0,
+      sampleRate: sampleRate,
+      channelCount: channelCount
+    )
+    manager.activePlayers.add(engine)
+    return engine
+  of err(error):
+    raise newException(AudioError, error.msg)
+
+proc play*(engine: OpenSLAudioEngine) =
+  ## Start OpenSL ES playback
+  # Implementation: Start player, update state
+  
+  if not engine.isPlaying:
+    let result = engine.player.play()
+    case result
+    of ok():
+      engine.isPlaying = true
+    of err(error):
+      raise newException(AudioError, error.msg)
+
+proc write*(engine: OpenSLAudioEngine, buffer: AudioBuffer) =
+  ## Write audio buffer to OpenSL ES
+  # Implementation: Apply volume, convert to bytes, enqueue buffer
+  
+  if buffer.data.len == 0:
+    return
+
+  # Apply volume
+  var processedData = buffer.data
+  if engine.volume != 1.0:
+    processedData = buffer.data.mapIt((it.float32 * engine.volume).int16)
+
+  # Convert to bytes and enqueue
+  let byteData = cast[seq[byte]](processedData)
+  let result = engine.player.enqueueBuffer(byteData)
+  case result
+  of ok():
+    discard
+  of err(error):
+    raise newException(AudioError, error.msg)
+
+# ... other OpenSL engine methods (setVolume, close, etc.) ...
+
+## ============================================================================
+## LAYER 4: Updated Unified API with OpenSL ES Support
+## ============================================================================
+
+import idiomatic/ndk/audio as ndk_audio        # AAudio
+import idiomatic/ndk/opensl as opensl_audio    # OpenSL ES  
+import idiomatic/sdk/audio as sdk_audio        # AudioTrack
+import core
+
+type
+  # Updated engine type with OpenSL ES support
+  AudioEngine* = ref object
+    runtime: AndroidRuntime
+    case kind: AudioEngineKind
+    when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+      of aekAAudio:
+        ndkManager: NdkAudioManager
+        aaudioEngine: ndk_audio.AAudioEngine
+      of aekOpenSLES:
+        openslManager: OpenSLAudioManager  
+        openslEngine: OpenSLAudioEngine
+      of aekAudioTrack:
+        sdkManager: SdkAudioManager
+        audioTrackEngine: JavaAudioEngine
+
+  AudioEngineKind = enum
+    aekAAudio,      # API 26+ - Lowest latency
+    aekOpenSLES,    # API 21+ - Low latency NDK  
+    aekAudioTrack   # API 16+ - SDK compatibility
+
+proc initAudioManager*(runtime: AndroidRuntime): AudioEngine =
+  ## Updated audio manager initialization with three-tier selection
+  # Implementation: AAudio (best) → OpenSL ES (good) → AudioTrack (compatible)
+  
+  new(result)
+  result.runtime = runtime
+
+  when afLowLatencyAudio in usedFeatures:
+    # User wants low latency - try AAudio first, then OpenSL ES
+    if runtime.apiLevel >= 26:
+      echo "🎵 Initializing AAudio (ultra-low latency)"
+      result.kind = aekAAudio
+      result.ndkManager = newNdkAudioManager(runtime)
+      result.aaudioEngine = result.ndkManager.createOutputEngine(lowLatency = true)
+    elif runtime.apiLevel >= 21:
+      echo "🎵 Initializing OpenSL ES (low latency fallback)"
+      result.kind = aekOpenSLES
+      result.openslManager = newOpenSLAudioManager(runtime)
+      result.openslEngine = result.openslManager.createEngine()
+    elif runtime.context.isSome:
+      echo "🎵 Initializing AudioTrack (compatibility fallback)"
+      result.kind = aekAudioTrack
+      result.sdkManager = newSdkAudioManager(runtime)
+      result.audioTrackEngine = result.sdkManager.createEngine()
+    else:
+      raise newException(UnsupportedError, "No low latency audio available")
+
+  elif afAudio in usedFeatures:
+    # Basic audio - choose best available for runtime mode
+    case runtime.mode
+    of armNdkOnly:
+      if runtime.apiLevel >= 26:
+        echo "🎵 Initializing AAudio (NDK-only mode)"
+        result.kind = aekAAudio
+        result.ndkManager = newNdkAudioManager(runtime)
+        result.aaudioEngine = result.ndkManager.createOutputEngine(lowLatency = false)
+      elif runtime.apiLevel >= 21:
+        echo "🎵 Initializing OpenSL ES (NDK-only mode, older device)"
+        result.kind = aekOpenSLES
+        result.openslManager = newOpenSLAudioManager(runtime)
+        result.openslEngine = result.openslManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "NDK audio requires API 21+")
+
+    of armSdkOnly:
+      if runtime.context.isSome:
+        echo "🎵 Initializing AudioTrack (SDK-only mode)"
+        result.kind = aekAudioTrack
+        result.sdkManager = newSdkAudioManager(runtime)
+        result.audioTrackEngine = result.sdkManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "SDK audio requires Java context")
+
+    of armHybrid, armAuto:
+      # Choose best available implementation
+      if runtime.apiLevel >= 26:
+        echo "🎵 Initializing AAudio (hybrid - best performance)"
+        result.kind = aekAAudio
+        result.ndkManager = newNdkAudioManager(runtime)
+        result.aaudioEngine = result.ndkManager.createOutputEngine()
+      elif runtime.apiLevel >= 21:
+        echo "🎵 Initializing OpenSL ES (hybrid - good performance)"
+        result.kind = aekOpenSLES
+        result.openslManager = newOpenSLAudioManager(runtime)
+        result.openslEngine = result.openslManager.createEngine()
+      elif runtime.context.isSome:
+        echo "🎵 Initializing AudioTrack (hybrid - compatible)"
+        result.kind = aekAudioTrack
+        result.sdkManager = newSdkAudioManager(runtime)
+        result.audioTrackEngine = result.sdkManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "No audio implementation available")
+
+# Updated unified API functions to handle all three engines
+proc play*(buffer: AudioBuffer) =
+  ## Play audio buffer using optimal implementation (now includes OpenSL ES)
+  # Implementation: Route to AAudio, OpenSL ES, or AudioTrack based on engine
+  
+  trackFeature(afAudio)
+  let manager = getAudioManager()
+  
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    case manager.kind
+    of aekAAudio: manager.aaudioEngine.write(buffer)
+    of aekOpenSLES: manager.openslEngine.write(buffer)  # NEW!
+    of aekAudioTrack: manager.audioTrackEngine.write(buffer)
+
+proc startPlayback*() =
+  ## Start audio playback on any engine
+  # Implementation: Route to appropriate engine's play method
+  
+  let manager = getAudioManager()
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    case manager.kind
+    of aekAAudio: manager.aaudioEngine.play()
+    of aekOpenSLES: manager.openslEngine.play()      # NEW!
+    of aekAudioTrack: manager.audioTrackEngine.play()
+
+proc getImplementationInfo*(): string =
+  ## Updated to include OpenSL ES information
+  # Implementation: Return description of active engine including OpenSL ES
+  
+  let manager = getAudioManager()
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    case manager.kind
+    of aekAAudio: "AAudio (NDK) - Ultra-low latency, API 26+"
+    of aekOpenSLES: "OpenSL ES (NDK) - Low latency, API 21+"     # NEW!
+    of aekAudioTrack: "AudioTrack (SDK) - Standard latency, API 16+"
+  else:
+    "No audio implementation"
+
+## ============================================================================
+## COMPLETE API LEVEL COVERAGE SUMMARY
+## ============================================================================
+
+# Now we have complete coverage:
+# API 16-20: AudioTrack (SDK) - Basic compatibility
+# API 21-25: OpenSL ES (NDK) - Good performance + low latency
+# API 26+:   AAudio (NDK)    - Best performance + ultra-low latency
+
+# The system automatically selects:
+# 1. AAudio if API 26+ and low latency requested
+# 2. OpenSL ES if API 21+ and NDK mode
+# 3. AudioTrack as universal fallback
+
+# Example outcomes:
+# - Pixel 6 (API 33): Uses AAudio (ultra-low latency)
+# - Galaxy S7 (API 24): Uses OpenSL ES (low latency)  
+# - Old tablet (API 19): Uses AudioTrack (compatible)

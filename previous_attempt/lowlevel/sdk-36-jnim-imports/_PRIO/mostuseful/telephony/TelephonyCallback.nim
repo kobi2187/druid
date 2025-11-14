@@ -1,0 +1,81 @@
+import jnim
+
+jclass android.telephony.TelephonyCallback* of JVMObject:
+  proc init*(executor: Executor)
+  FLAG_PER_PID_REGISTRATION_LIMIT*: string {.`static`.}
+  DEFAULT_PER_PID_REGISTRATION_LIMIT*: jint {.`static`.}
+  PHONE_STATE_LISTENER_LIMIT_CHANGE_ID*: jlong {.`static`.}
+  EVENT_SERVICE_STATE_CHANGED*: jint {.`static`.}
+  EVENT_SIGNAL_STRENGTH_CHANGED*: jint {.`static`.}
+  EVENT_MESSAGE_WAITING_INDICATOR_CHANGED*: jint {.`static`.}
+  EVENT_CALL_FORWARDING_INDICATOR_CHANGED*: jint {.`static`.}
+  EVENT_CELL_LOCATION_CHANGED*: jint {.`static`.}
+  EVENT_CALL_STATE_CHANGED*: jint {.`static`.}
+  EVENT_DATA_CONNECTION_STATE_CHANGED*: jint {.`static`.}
+  EVENT_DATA_ACTIVITY_CHANGED*: jint {.`static`.}
+  EVENT_SIGNAL_STRENGTHS_CHANGED*: jint {.`static`.}
+  EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED*: jint {.`static`.}
+  EVENT_CELL_INFO_CHANGED*: jint {.`static`.}
+  EVENT_PRECISE_CALL_STATE_CHANGED*: jint {.`static`.}
+  EVENT_PRECISE_DATA_CONNECTION_STATE_CHANGED*: jint {.`static`.}
+  EVENT_DATA_CONNECTION_REAL_TIME_INFO_CHANGED*: jint {.`static`.}
+  EVENT_OEM_HOOK_RAW*: jint {.`static`.}
+  EVENT_SRVCC_STATE_CHANGED*: jint {.`static`.}
+  EVENT_CARRIER_NETWORK_CHANGED*: jint {.`static`.}
+  EVENT_VOICE_ACTIVATION_STATE_CHANGED*: jint {.`static`.}
+  EVENT_DATA_ACTIVATION_STATE_CHANGED*: jint {.`static`.}
+  EVENT_USER_MOBILE_DATA_STATE_CHANGED*: jint {.`static`.}
+  EVENT_DISPLAY_INFO_CHANGED*: jint {.`static`.}
+  EVENT_PHONE_CAPABILITY_CHANGED*: jint {.`static`.}
+  EVENT_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGED*: jint {.`static`.}
+  EVENT_RADIO_POWER_STATE_CHANGED*: jint {.`static`.}
+  EVENT_EMERGENCY_NUMBER_LIST_CHANGED*: jint {.`static`.}
+  EVENT_CALL_DISCONNECT_CAUSE_CHANGED*: jint {.`static`.}
+  EVENT_CALL_ATTRIBUTES_CHANGED*: jint {.`static`.}
+  EVENT_IMS_CALL_DISCONNECT_CAUSE_CHANGED*: jint {.`static`.}
+  EVENT_OUTGOING_EMERGENCY_CALL*: jint {.`static`.}
+  EVENT_OUTGOING_EMERGENCY_SMS*: jint {.`static`.}
+  EVENT_REGISTRATION_FAILURE*: jint {.`static`.}
+  EVENT_BARRING_INFO_CHANGED*: jint {.`static`.}
+  EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED*: jint {.`static`.}
+  EVENT_DATA_ENABLED_CHANGED*: jint {.`static`.}
+  EVENT_ALLOWED_NETWORK_TYPE_LIST_CHANGED*: jint {.`static`.}
+  EVENT_LEGACY_CALL_STATE_CHANGED*: jint {.`static`.}
+  EVENT_LINK_CAPACITY_ESTIMATE_CHANGED*: jint {.`static`.}
+  EVENT_TRIGGER_NOTIFY_ANBR*: jint {.`static`.}
+  EVENT_MEDIA_QUALITY_STATUS_CHANGED*: jint {.`static`.}
+  EVENT_EMERGENCY_CALLBACK_MODE_CHANGED*: jint {.`static`.}
+  EVENT_SIMULTANEOUS_CELLULAR_CALLING_SUBSCRIPTIONS_CHANGED*: jint {.`static`.}
+  EVENT_CARRIER_ROAMING_NTN_MODE_CHANGED*: jint {.`static`.}
+  EVENT_CARRIER_ROAMING_NTN_ELIGIBLE_STATE_CHANGED*: jint {.`static`.}
+  EVENT_CARRIER_ROAMING_NTN_AVAILABLE_SERVICES_CHANGED*: jint {.`static`.}
+  EVENT_CARRIER_ROAMING_NTN_SIGNAL_STRENGTH_CHANGED*: jint {.`static`.}
+  EVENT_SECURITY_ALGORITHMS_CHANGED*: jint {.`static`.}
+  EVENT_CELLULAR_IDENTIFIER_DISCLOSED_CHANGED*: jint {.`static`.}
+  callback*: IPhoneStateListener
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

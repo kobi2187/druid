@@ -1,0 +1,552 @@
+# Manager Initialization and Access Pattern
+# Shows how the global manager system works
+
+## ============================================================================
+## CORE MANAGER REGISTRY (android/core.nim)
+## ============================================================================
+
+import std/[tables, options]
+
+type
+  AndroidRuntime* = ref object
+    mode*: AndroidRuntimeMode
+    apiLevel*: int32
+    context*: Option[AndroidContext]
+    
+    # Manager instances - only created for used features
+    when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+      audioManager*: AudioEngine
+    
+    when afGraphics in usedFeatures or afVulkan in usedFeatures:
+      graphicsManager*: GraphicsEngine
+    
+    when afInput in usedFeatures or afSensors in usedFeatures:
+      inputManager*: InputEngine
+    
+    when afNotifications in usedFeatures:
+      notificationManager*: NotificationEngine
+    
+    when afCamera in usedFeatures:
+      cameraManager*: CameraEngine
+    
+    when afStorage in usedFeatures:
+      storageManager*: StorageEngine
+    
+    when afSystem in usedFeatures:
+      systemManager*: SystemEngine
+    
+    when afNetwork in usedFeatures:
+      networkManager*: NetworkEngine
+    
+    when afLocation in usedFeatures:
+      locationManager*: LocationEngine
+
+# Global runtime instance
+var globalRuntime {.global.}: AndroidRuntime
+
+proc initAndroid*(mode = armAuto): AndroidCapabilities =
+  ## Initialize Android runtime with conditional manager creation
+  new(globalRuntime)
+  globalRuntime.mode = mode
+  globalRuntime.apiLevel = getCurrentApiLevel()
+  globalRuntime.context = if needsJavaSDK: autoDetectContext() else: none(AndroidContext)
+  
+  echo "🚀 Initializing Android Runtime..."
+  echo "📱 API Level: ", globalRuntime.apiLevel
+  echo "🏭 Mode: ", globalRuntime.mode
+  
+  # Initialize managers only for features that are actually used
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    echo "🎵 Initializing Audio Manager..."
+    globalRuntime.audioManager = initAudioManager(globalRuntime)
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    echo "🎮 Initializing Graphics Manager..."
+    globalRuntime.graphicsManager = initGraphicsManager(globalRuntime)
+  
+  when afInput in usedFeatures or afSensors in usedFeatures:
+    echo "🎯 Initializing Input Manager..."
+    globalRuntime.inputManager = initInputManager(globalRuntime)
+  
+  when afNotifications in usedFeatures:
+    echo "🔔 Initializing Notification Manager..."
+    globalRuntime.notificationManager = initNotificationManager(globalRuntime)
+  
+  when afCamera in usedFeatures:
+    echo "📷 Initializing Camera Manager..."
+    globalRuntime.cameraManager = initCameraManager(globalRuntime)
+  
+  when afStorage in usedFeatures:
+    echo "💾 Initializing Storage Manager..."
+    globalRuntime.storageManager = initStorageManager(globalRuntime)
+  
+  when afSystem in usedFeatures:
+    echo "⚙️ Initializing System Manager..."
+    globalRuntime.systemManager = initSystemManager(globalRuntime)
+  
+  when afNetwork in usedFeatures:
+    echo "🌐 Initializing Network Manager..."
+    globalRuntime.networkManager = initNetworkManager(globalRuntime)
+  
+  when afLocation in usedFeatures:
+    echo "📍 Initializing Location Manager..."
+    globalRuntime.locationManager = initLocationManager(globalRuntime)
+  
+  echo "✅ Android Runtime initialized"
+  
+  # Return capabilities
+  getAndroidCapabilities()
+
+proc getAndroidRuntime*(): AndroidRuntime =
+  ## Get global runtime instance
+  if globalRuntime == nil:
+    raise newException(ValueError, "Android runtime not initialized! Call initAndroid() first.")
+  globalRuntime
+
+## ============================================================================
+## MANAGER ACCESS FUNCTIONS (android/audio.nim, android/graphics.nim, etc.)
+## ============================================================================
+
+# Each module provides a getXManager() function that returns the appropriate manager
+
+# Audio Manager Access
+proc getAudioManager*(): AudioEngine =
+  ## Get audio manager instance
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    let runtime = getAndroidRuntime()
+    return runtime.audioManager
+  else:
+    {.error: "Audio manager not available - no audio features used in this app".}
+
+# Graphics Manager Access  
+proc getGraphicsManager*(): GraphicsEngine =
+  ## Get graphics manager instance
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    let runtime = getAndroidRuntime()
+    return runtime.graphicsManager
+  else:
+    {.error: "Graphics manager not available - no graphics features used in this app".}
+
+# Input Manager Access
+proc getInputManager*(): InputEngine =
+  ## Get input manager instance
+  when afInput in usedFeatures or afSensors in usedFeatures:
+    let runtime = getAndroidRuntime()
+    return runtime.inputManager
+  else:
+    {.error: "Input manager not available - no input features used in this app".}
+
+# And so on for other managers...
+
+## ============================================================================
+## INDIVIDUAL MANAGER INITIALIZERS
+## ============================================================================
+
+# Each manager has its own initializer that chooses the best implementation
+
+proc initAudioManager(runtime: AndroidRuntime): AudioEngine =
+  ## Initialize audio manager with optimal implementation selection
+  new(result)
+  result.runtime = runtime
+  
+  # Compile-time selection based on features and runtime capabilities
+  when afLowLatencyAudio in usedFeatures:
+    # User needs low latency - try AAudio first
+    if runtime.apiLevel >= 26:
+      echo "    → Using AAudio (low latency)"
+      result.kind = aekAAudio
+      result.ndkManager = newNdkAudioManager(runtime)
+      result.aaudioEngine = result.ndkManager.createEngine()
+    elif runtime.context.isSome:
+      echo "    → Using AudioTrack (fallback - no AAudio support)"
+      result.kind = aekAudioTrack
+      result.sdkManager = newSdkAudioManager(runtime)
+      result.audioTrackEngine = result.sdkManager.createEngine()
+    else:
+      raise newException(UnsupportedError, "Low latency audio not available")
+  
+  elif afAudio in usedFeatures:
+    # Basic audio - choose based on runtime mode
+    case runtime.mode
+    of armNdkOnly:
+      if runtime.apiLevel >= 26:
+        echo "    → Using AAudio (NDK-only mode)"
+        result.kind = aekAAudio
+        result.ndkManager = newNdkAudioManager(runtime)
+        result.aaudioEngine = result.ndkManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "NDK audio requires API 26+")
+    
+    of armSdkOnly:
+      if runtime.context.isSome:
+        echo "    → Using AudioTrack (SDK-only mode)"
+        result.kind = aekAudioTrack
+        result.sdkManager = newSdkAudioManager(runtime)
+        result.audioTrackEngine = result.sdkManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "SDK audio requires Java context")
+    
+    of armHybrid, armAuto:
+      # Choose best available
+      if runtime.apiLevel >= 26:
+        echo "    → Using AAudio (hybrid - best performance)"
+        result.kind = aekAAudio
+        result.ndkManager = newNdkAudioManager(runtime)
+        result.aaudioEngine = result.ndkManager.createEngine()
+      elif runtime.context.isSome:
+        echo "    → Using AudioTrack (hybrid - compatible)"
+        result.kind = aekAudioTrack
+        result.sdkManager = newSdkAudioManager(runtime)
+        result.audioTrackEngine = result.sdkManager.createEngine()
+      else:
+        raise newException(UnsupportedError, "No audio implementation available")
+
+proc initGraphicsManager(runtime: AndroidRuntime): GraphicsEngine =
+  ## Initialize graphics manager with optimal implementation selection
+  new(result)
+  result.runtime = runtime
+  
+  when afVulkan in usedFeatures:
+    # User wants Vulkan - try it first
+    if runtime.apiLevel >= 24 and isVulkanSupported():
+      echo "    → Using Vulkan (high performance)"
+      result.kind = gekVulkan
+      result.vulkanEngine = newVulkanEngine()
+    elif runtime.apiLevel >= 21:
+      echo "    → Using OpenGL ES 3.0 (fallback from Vulkan)"
+      result.kind = gekOpenGLES3
+      result.openglEngine = newOpenGLES3Engine()
+    else:
+      echo "    → Using OpenGL ES 2.0 (compatibility fallback)"
+      result.kind = gekOpenGLES2
+      result.openglEngine = newOpenGLES2Engine()
+  
+  elif afOpenGLES3 in usedFeatures:
+    # User wants OpenGL ES 3.0+
+    if runtime.apiLevel >= 21:
+      echo "    → Using OpenGL ES 3.0"
+      result.kind = gekOpenGLES3
+      result.openglEngine = newOpenGLES3Engine()
+    else:
+      echo "    → Using OpenGL ES 2.0 (fallback)"
+      result.kind = gekOpenGLES2
+      result.openglEngine = newOpenGLES2Engine()
+  
+  else:
+    # Basic graphics
+    echo "    → Using OpenGL ES 2.0 (basic graphics)"
+    result.kind = gekOpenGLES2
+    result.openglEngine = newOpenGLES2Engine()
+
+proc initNotificationManager(runtime: AndroidRuntime): NotificationEngine =
+  ## Initialize notification manager
+  new(result)
+  result.runtime = runtime
+  
+  # Notifications always require Java SDK context
+  if runtime.context.isSome:
+    echo "    → Using Android NotificationManager"
+    result.kind = nekAndroid
+    result.androidManager = newAndroidNotificationManager(runtime.context.get())
+  else:
+    echo "    → Using stub notifications (no Java context)"
+    result.kind = nekStub
+    result.stubManager = newStubNotificationManager()
+
+## ============================================================================
+## USAGE EXAMPLES
+## ============================================================================
+
+# Example 1: App that uses audio and graphics
+proc gameExample() =
+  # Initialize Android with automatic mode selection
+  discard initAndroid(armAuto)
+  
+  # Get managers - these calls are compile-time validated!
+  let audioMgr = getAudioManager()    # Only works if afAudio in usedFeatures
+  let graphicsMgr = getGraphicsManager() # Only works if afGraphics in usedFeatures
+  
+  # Use the managers - they automatically use the optimal implementation
+  let buffer = loadAudioBuffer("sound.wav")
+  audioMgr.play(buffer)  # Uses AAudio or AudioTrack automatically
+  
+  graphicsMgr.beginFrame()  # Uses Vulkan or OpenGL automatically
+  # ... render game
+  graphicsMgr.endFrame()
+
+# Example 2: Audio-only app  
+proc musicPlayerExample() =
+  discard initAndroid(armAuto)
+  
+  # Only audio manager is available (graphics manager would be compile error)
+  let audioMgr = getAudioManager()
+  
+  # This automatically uses the best audio implementation for the device
+  audioMgr.playMusic("song.mp3")
+  audioMgr.setVolume(0.8)
+  
+  # This would be a compile-time error:
+  # let graphicsMgr = getGraphicsManager()  # ERROR: Graphics not used!
+
+# Example 3: Notification app
+proc notificationExample() =
+  discard initAndroid(armHybrid)  # Needs Java SDK for notifications
+  
+  let notificationMgr = getNotificationManager()
+  notificationMgr.show("Hello", "World!")
+  
+  # Manager automatically uses Android NotificationManager or stub based on context
+
+## ============================================================================
+## COMPILE-TIME ANALYSIS INTEGRATION
+## ============================================================================
+
+# This macro runs at compile time to validate manager access
+macro validateManagerAccess*(managerType: typed): untyped =
+  ## Validate that the requested manager is available based on used features
+  
+  let managerName = managerType.repr
+  
+  case managerName
+  of "AudioEngine":
+    if not (afAudio in usedFeatures or afLowLatencyAudio in usedFeatures):
+      error("Audio manager requested but no audio features used. Add trackFeature(afAudio) or use audio APIs.")
+  
+  of "GraphicsEngine":
+    if not (afGraphics in usedFeatures or afVulkan in usedFeatures or afOpenGLES3 in usedFeatures):
+      error("Graphics manager requested but no graphics features used. Add trackFeature(afGraphics) or use graphics APIs.")
+  
+  of "NotificationEngine":
+    if not (afNotifications in usedFeatures):
+      error("Notification manager requested but notifications not used. Add trackFeature(afNotifications) or use notification APIs.")
+  
+  # ... other managers
+  
+  # Return the original expression if validation passes
+  result = managerType
+
+# Enhanced manager access with validation
+template getAudioManager*(): AudioEngine =
+  validateManagerAccess(AudioEngine)
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    let runtime = getAndroidRuntime()
+    runtime.audioManager
+  else:
+    {.error: "Audio manager not available - use audio APIs to enable".}
+
+template getGraphicsManager*(): GraphicsEngine =
+  validateManagerAccess(GraphicsEngine)
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    let runtime = getAndroidRuntime()
+    runtime.graphicsManager
+  else:
+    {.error: "Graphics manager not available - use graphics APIs to enable".}
+
+## ============================================================================
+## MANAGER INSPECTION AND DEBUG
+## ============================================================================
+
+proc inspectManagers*() =
+  ## Debug function to show which managers are active
+  echo "\n🔍 Active Android Managers:"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  let runtime = getAndroidRuntime()
+  
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    echo "🎵 Audio Manager: Active"
+    case runtime.audioManager.kind
+    of aekAAudio: echo "    Implementation: AAudio (NDK)"
+    of aekAudioTrack: echo "    Implementation: AudioTrack (SDK)"
+  else:
+    echo "🎵 Audio Manager: Not Used"
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    echo "🎮 Graphics Manager: Active"
+    case runtime.graphicsManager.kind
+    of gekVulkan: echo "    Implementation: Vulkan"
+    of gekOpenGLES3: echo "    Implementation: OpenGL ES 3.0"
+    of gekOpenGLES2: echo "    Implementation: OpenGL ES 2.0"
+  else:
+    echo "🎮 Graphics Manager: Not Used"
+  
+  when afNotifications in usedFeatures:
+    echo "🔔 Notification Manager: Active"
+    case runtime.notificationManager.kind
+    of nekAndroid: echo "    Implementation: Android NotificationManager"
+    of nekStub: echo "    Implementation: Stub (no Java context)"
+  else:
+    echo "🔔 Notification Manager: Not Used"
+  
+  # ... other managers
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+proc getManagerInfo*(managerType: string): string =
+  ## Get information about a specific manager
+  let runtime = getAndroidRuntime()
+  
+  case managerType
+  of "audio":
+    when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+      case runtime.audioManager.kind
+      of aekAAudio: "AAudio (NDK) - Low latency capable"
+      of aekAudioTrack: "AudioTrack (SDK) - Standard latency"
+    else:
+      "Not available"
+  
+  of "graphics":
+    when afGraphics in usedFeatures or afVulkan in usedFeatures:
+      case runtime.graphicsManager.kind
+      of gekVulkan: "Vulkan - High performance"
+      of gekOpenGLES3: "OpenGL ES 3.0 - Modern features"
+      of gekOpenGLES2: "OpenGL ES 2.0 - Compatible"
+    else:
+      "Not available"
+  
+  else:
+    "Unknown manager"
+
+## ============================================================================
+## PERFORMANCE OPTIMIZATION
+## ============================================================================
+
+# Manager instances are created once at startup and reused
+# No runtime manager selection - everything decided at compile time and startup
+
+proc benchmarkManagerAccess*() =
+  ## Benchmark manager access performance
+  import times
+  
+  let startTime = cpuTime()
+  
+  # Manager access should be extremely fast - just a field access
+  for i in 0..<1_000_000:
+    when afAudio in usedFeatures:
+      let audioMgr = getAudioManager()
+      discard audioMgr  # Just access, don't use
+  
+  let endTime = cpuTime()
+  echo "Manager access time: ", (endTime - startTime) * 1000, " ms for 1M accesses"
+  echo "Average per access: ", ((endTime - startTime) / 1_000_000) * 1_000_000, " microseconds"
+
+## ============================================================================
+## SHUTDOWN AND CLEANUP
+## ============================================================================
+
+proc shutdownAndroid*() =
+  ## Clean shutdown of all managers
+  if globalRuntime == nil:
+    return
+  
+  echo "🔧 Shutting down Android Runtime..."
+  
+  when afAudio in usedFeatures or afLowLatencyAudio in usedFeatures:
+    echo "🎵 Closing Audio Manager..."
+    globalRuntime.audioManager.close()
+  
+  when afGraphics in usedFeatures or afVulkan in usedFeatures:
+    echo "🎮 Closing Graphics Manager..."  
+    globalRuntime.graphicsManager.close()
+  
+  when afNotifications in usedFeatures:
+    echo "🔔 Closing Notification Manager..."
+    globalRuntime.notificationManager.close()
+  
+  # ... close other managers
+  
+  globalRuntime = nil
+  echo "✅ Android Runtime shutdown complete"
+
+## ============================================================================
+## REAL-WORLD USAGE EXAMPLES
+## ============================================================================
+
+# Example 1: Game that automatically adapts to device capabilities
+proc adaptiveGame() =
+  discard initAndroid(armAuto)
+  
+  # These managers are automatically optimized for the device
+  let audio = getAudioManager()
+  let graphics = getGraphicsManager()
+  let input = getInputManager()
+  
+  # Check what implementations were selected
+  echo "Audio: ", getManagerInfo("audio")
+  echo "Graphics: ", getManagerInfo("graphics")
+  
+  # Game loop - uses optimal implementations automatically
+  while true:
+    input.update()
+    
+    if input.isTouched():
+      audio.playSound("click.wav")  # AAudio or AudioTrack automatically
+    
+    graphics.beginFrame()  # Vulkan or OpenGL automatically
+    graphics.render(gameScene)
+    graphics.endFrame()
+    
+    if input.wasKeyPressed(kcBack):
+      break
+  
+  shutdownAndroid()
+
+# Example 2: Audio app that gracefully handles different Android versions
+proc audioApp() =
+  discard initAndroid(armHybrid)
+  
+  let audio = getAudioManager()
+  
+  # App works on all Android versions - automatically uses best audio API
+  if getApiLevel() >= 26:
+    echo "Using professional audio features (AAudio)"
+    audio.enableLowLatency()
+  else:
+    echo "Using compatible audio (AudioTrack)"
+  
+  audio.playMusic("background.mp3")
+  
+  # The same API call works everywhere, but uses different implementations
+  audio.setVolume(0.8)
+
+# Example 3: Notification app that handles missing Java context gracefully
+proc notificationApp() =
+  discard initAndroid(armHybrid)
+  
+  let notifications = getNotificationManager()
+  
+  # Manager automatically uses stub if no Java context available
+  let success = notifications.show("Test", "Message")
+  
+  if not success:
+    echo "Notifications not available - using alternative UI feedback"
+    # Use graphics or audio feedback instead
+
+## ============================================================================
+## KEY BENEFITS OF THIS ARCHITECTURE
+## ============================================================================
+
+# 1. COMPILE-TIME OPTIMIZATION
+#    - Only managers for used features are compiled in
+#    - Manager access is compile-time validated
+#    - Zero runtime overhead for unused features
+
+# 2. AUTOMATIC ADAPTATION  
+#    - Best implementation selected at startup based on device capabilities
+#    - Graceful fallbacks when preferred implementation unavailable
+#    - Developer doesn't need to know Android internals
+
+# 3. TYPE SAFETY
+#    - Impossible to access managers for unused features
+#    - Compile-time errors prevent runtime failures
+#    - Clear error messages guide developers
+
+# 4. PERFORMANCE
+#    - Manager instances created once, reused throughout app lifetime
+#    - No runtime checks or dynamic dispatch for manager access
+#    - Direct field access to manager instances
+
+# 5. FLEXIBILITY
+#    - Experts can still access lower layers when needed
+#    - Runtime mode selection (NDK-only, SDK-only, Hybrid)
+#    - Easy to add new implementations without breaking existing code

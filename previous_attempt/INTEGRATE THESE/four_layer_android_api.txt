@@ -1,0 +1,261 @@
+# Four-Layer Android API Architecture
+
+## Layer 1: Raw Bindings (Direct 1:1 mappings)
+# android/raw/ndk/ - Pure NDK bindings
+# android/raw/sdk/ - Pure SDK bindings via JNI
+
+# NDK Raw
+proc AAudioStreamBuilder_new*(): AAudioStreamBuilder {.importc, dynlib: "aaudio".}
+proc AThermal_acquireManager*(): AThermalManager {.importc, dynlib: "android".}
+
+# SDK Raw (via JNI)
+proc NotificationManager_notify*(env: JNIEnv, obj: jobject, id: jint, notification: jobject) {.importc.}
+proc AudioManager_getStreamMaxVolume*(env: JNIEnv, obj: jobject, streamType: jint): jint {.importc.}
+
+## Layer 2: Safe Wrappers (Runtime checks, error handling)
+# android/safe/ndk/ - Safe NDK wrappers
+# android/safe/sdk/ - Safe SDK wrappers
+
+# NDK Safe
+proc acquireAAudioBuilder*(): Result[AAudioStreamBuilder, AndroidError] =
+  if androidRuntime.apiLevel >= 26:
+    let builder = AAudioStreamBuilder_new()
+    if builder != nil: ok(builder)
+    else: err(AndroidError(kind: aekUnsupported))
+  else:
+    err(AndroidError(kind: aekApiTooOld))
+
+# SDK Safe  
+proc showNotification*(ctx: AndroidContext, title: string, text: string): Result[void, AndroidError] =
+  if ctx.jniEnv != nil and ctx.javaContext != nil:
+    try:
+      let notifManager = getSystemService(ctx, "notification")
+      # ... JNI calls with proper error checking
+      ok()
+    except:
+      err(AndroidError(kind: aekJniError, msg: getCurrentExceptionMsg()))
+  else:
+    err(AndroidError(kind: aekNoContext))
+
+## Layer 3: Idiomatic Nim APIs (Single implementation type)
+# android/idiomatic/ndk/ - Nim-style NDK APIs
+# android/idiomatic/sdk/ - Nim-style SDK APIs
+
+# NDK Idiomatic
+type AAudioEngine* = ref object
+  builder: AAudioStreamBuilder
+  stream: AAudioStream
+
+proc newAAudioEngine*(): AAudioEngine =
+  new(result)
+  result.builder = acquireAAudioBuilder().expect("AAudio not available")
+
+# SDK Idiomatic  
+type AndroidNotifier* = ref object
+  context: AndroidContext
+  manager: jobject
+
+proc newAndroidNotifier*(ctx: AndroidContext): AndroidNotifier =
+  new(result)
+  result.context = ctx
+  result.manager = getSystemService(ctx, "notification").expect("Notifications not available")
+
+proc notify*(notifier: AndroidNotifier, title, text: string) =
+  showNotification(notifier.context, title, text).expect("Failed to show notification")
+
+## Layer 4: Unified Smart APIs (Runtime implementation selection)
+# android/ - Top-level unified APIs that choose best implementation
+
+type
+  AndroidRuntimeMode* = enum
+    armNdkOnly    # Pure NDK, no Java context
+    armSdkOnly    # Pure SDK via JNI  
+    armHybrid     # NDK preferred, SDK fallback
+    armAuto       # Automatic best choice
+
+  AndroidRuntime* = ref object
+    mode*: AndroidRuntimeMode
+    apiLevel*: int32
+    context*: Option[AndroidContext]
+    capabilities*: set[AndroidCapability]
+
+  AndroidCapability* = enum
+    # Implementation capabilities
+    acNdkAudio, acSdkAudio
+    acNdkNotifications, acSdkNotifications  
+    acNdkSensors, acSdkSensors
+    # Feature capabilities  
+    acLowLatencyAudio, acRichNotifications
+    acHapticFeedback, acSystemIntegration
+
+# Smart capability detection based on runtime mode
+proc detectCapabilities(runtime: AndroidRuntime): set[AndroidCapability] =
+  result = {}
+  
+  case runtime.mode
+  of armNdkOnly:
+    if runtime.apiLevel >= 26: result.incl(acNdkAudio)
+    if runtime.apiLevel >= 21: result.incl(acNdkSensors)
+    # NDK can't do notifications
+    
+  of armSdkOnly:
+    if runtime.context.isSome:
+      result.incl({acSdkAudio, acSdkNotifications, acSdkSensors})
+      result.incl(acRichNotifications)  # SDK has rich notification features
+    
+  of armHybrid, armAuto:
+    # Best of both worlds
+    if runtime.apiLevel >= 26: 
+      result.incl({acNdkAudio, acLowLatencyAudio})
+    if runtime.context.isSome:
+      result.incl({acSdkAudio, acSdkNotifications, acRichNotifications})
+    if runtime.apiLevel >= 21:
+      result.incl(acNdkSensors)  # NDK sensors preferred for performance
+
+# Unified Audio API - chooses best implementation
+type
+  AudioEngine* = ref object
+    runtime: AndroidRuntime
+    impl: AudioEngineImpl
+    
+  AudioEngineImpl = object
+    case kind: AudioImplKind
+    of aikNdkAAudio: 
+      ndkEngine: AAudioEngine
+    of aikNdkOpenSL:
+      openslEngine: OpenSLEngine  
+    of aikSdkAudio:
+      sdkEngine: AndroidAudioTrack
+
+proc newAudioEngine*(runtime: AndroidRuntime, preferLowLatency = true): AudioEngine =
+  new(result)
+  result.runtime = runtime
+  
+  # Smart implementation selection
+  case runtime.mode
+  of armNdkOnly:
+    if acNdkAudio in runtime.capabilities:
+      if preferLowLatency and runtime.apiLevel >= 26:
+        result.impl = AudioEngineImpl(kind: aikNdkAAudio, ndkEngine: newAAudioEngine())
+      else:
+        result.impl = AudioEngineImpl(kind: aikNdkOpenSL, openslEngine: newOpenSLEngine())
+    else:
+      raise newException(UnsupportedError, "No audio implementation available in NDK-only mode")
+      
+  of armSdkOnly:
+    if acSdkAudio in runtime.capabilities:
+      result.impl = AudioEngineImpl(kind: aikSdkAudio, sdkEngine: newAndroidAudioTrack(runtime.context.get()))
+    else:
+      raise newException(UnsupportedError, "No audio implementation available in SDK-only mode")
+      
+  of armHybrid, armAuto:
+    # Try NDK first for performance, fallback to SDK
+    if acNdkAudio in runtime.capabilities and preferLowLatency:
+      result.impl = AudioEngineImpl(kind: aikNdkAAudio, ndkEngine: newAAudioEngine())
+    elif acSdkAudio in runtime.capabilities:
+      result.impl = AudioEngineImpl(kind: aikSdkAudio, sdkEngine: newAndroidAudioTrack(runtime.context.get()))
+    else:
+      raise newException(UnsupportedError, "No audio implementation available")
+
+proc play*(engine: AudioEngine, buffer: AudioBuffer): Result[void, AudioError] =
+  case engine.impl.kind
+  of aikNdkAAudio: engine.impl.ndkEngine.play(buffer)
+  of aikNdkOpenSL: engine.impl.openslEngine.play(buffer)  
+  of aikSdkAudio: engine.impl.sdkEngine.play(buffer)
+
+# Unified Notification API - automatically chooses implementation
+type NotificationManager* = ref object
+  runtime: AndroidRuntime
+  impl: NotificationImpl
+  
+proc newNotificationManager*(runtime: AndroidRuntime): NotificationManager =
+  new(result)
+  result.runtime = runtime
+  
+  case runtime.mode
+  of armNdkOnly:
+    # NDK can't do notifications - create stub
+    result.impl = NotificationImpl(kind: nikStub)
+    
+  of armSdkOnly, armHybrid, armAuto:
+    if acSdkNotifications in runtime.capabilities:
+      result.impl = NotificationImpl(kind: nikSdk, sdkNotifier: newAndroidNotifier(runtime.context.get()))
+    else:
+      result.impl = NotificationImpl(kind: nikStub)
+
+proc notify*(manager: NotificationManager, title, text: string): bool =
+  case manager.impl.kind
+  of nikSdk: 
+    manager.impl.sdkNotifier.notify(title, text)
+    true
+  of nikStub:
+    when defined(androidDebug):
+      echo "Notification (stub): ", title, " - ", text
+    false  # Indicates notification not actually shown
+
+# Usage Examples showing the power of this architecture:
+
+## Example 1: NDK-Only High Performance Game
+proc gameMain() =
+  let runtime = AndroidRuntime(
+    mode: armNdkOnly,
+    apiLevel: getCurrentApiLevel()
+  )
+  
+  # Only NDK implementations available
+  let audio = newAudioEngine(runtime, preferLowLatency = true)  # Uses AAudio
+  let sensors = newSensorManager(runtime)                      # Uses NDK sensors
+  
+  # This would fail gracefully
+  let notifications = newNotificationManager(runtime)          # Stub implementation
+  discard notifications.notify("Game started", "Ready to play")  # Returns false, logs in debug
+
+## Example 2: SDK-Rich Application  
+proc appMain(activity: jobject, env: JNIEnv) =
+  let runtime = AndroidRuntime(
+    mode: armSdkOnly,
+    apiLevel: getCurrentApiLevel(),
+    context: some(AndroidContext(jniEnv: env, javaActivity: activity))
+  )
+  
+  # SDK implementations
+  let audio = newAudioEngine(runtime)                          # Uses AudioTrack
+  let notifications = newNotificationManager(runtime)         # Rich notifications
+  
+  discard notifications.notify("App started", "Welcome!")      # Full Android notification
+
+## Example 3: Hybrid Best-of-Both  
+proc hybridMain(activity: jobject, env: JNIEnv) =
+  let runtime = AndroidRuntime(
+    mode: armHybrid,
+    apiLevel: getCurrentApiLevel(),
+    context: some(AndroidContext(jniEnv: env, javaActivity: activity))
+  )
+  
+  # Automatic best implementation selection
+  let audio = newAudioEngine(runtime, preferLowLatency = true) # AAudio if available
+  let sensors = newSensorManager(runtime)                     # NDK sensors (faster)
+  let notifications = newNotificationManager(runtime)        # SDK notifications (richer)
+  
+  # All features work optimally
+  sensors.onAcceleration = proc(data: AccelData) =
+    audio.playEffect(selectSound(data.magnitude))
+    if data.magnitude > threshold:
+      discard notifications.notify("High G-Force", "Detected strong acceleration")
+
+## Example 4: Developer Choice & Transparency
+proc configurableMain() =
+  # Let user choose implementation strategy
+  let preferredMode = if isGameApp(): armNdkOnly
+                     elif isMusicApp(): armHybrid  # Need both low latency + rich features
+                     else: armSdkOnly
+  
+  let runtime = initAndroidRuntime(preferredMode)
+  
+  # Developer can inspect what they got
+  echo "Audio implementation: ", audio.getImplementationInfo()
+  echo "Available capabilities: ", runtime.capabilities
+  
+  # Graceful degradation with clear feedback
+  if acLowLatencyAudio notin runtime.capabilities:
+    echo "Warning: Low latency audio not available, using standard audio"

@@ -1,0 +1,31 @@
+next actions:
+☐ use the build tools we made, doctor, etc, to create a simple apk, that can run.
+☐ then make a nimx app, according to instructions and built with our build/deploy tools.
+☐ use nimx with a simple button, when clicked will call my lib.
+☐ then test a jnim function.
+☐ Then test an ndk function
+☐ then test getting hardware version, and check if i can indeed link to both versions and use if to decide execution.
+
+
+
+
+
+- prioritize packages [v]
+- read sdk docs
+- minimal poc for jnim (initjni etc) -- have something running
+- write agreed api, and integrate with existing jnim way
+- begin with sdk managers + top abstraction (ctx ptr for both ndk and sdk)
+    - write runtime hw-api detection
+    - compare every nim service to java service (via docs - public procs and java way to do it)
+        - nicer api is already available (made by claude) -- but have to make sure it's not hallucinated or invented.
+    - one poc service
+- connect to robolectric (mockup for android) via jnim.
+
+- gtest binding (mockup tests for ndk)
+- group huge ndk funcs according to managers.
+
+
+==============
+simple tests to check if the highest level api with tracking works in Nim. yep, seems to be working! !!
+compare APIs -- different attempts mix and match to have best experience.
+futhark - find out the relevant headers.

@@ -1,0 +1,239 @@
+# Automatic Feature Detection & Friction-Free Development
+
+## Global Feature Tracking (Compile-Time)
+var usedFeatures {.compileTime.}: set[AndroidFeature]
+var needsContext {.compileTime.}: bool = false
+
+template trackFeature(feature: AndroidFeature, requiresContext: bool = false) =
+  static:
+    usedFeatures.incl(feature)
+    if requiresContext:
+      needsContext = true
+
+## Friction-Free API - Users Just Write Normal Code
+proc playAudio*(buffer: AudioBuffer) =
+  trackFeature(afAudio)  # Automatically tracked
+  # Implementation chosen at runtime
+  getAudioEngine().play(buffer)
+
+proc showNotification*(title, message: string) =
+  trackFeature(afNotifications, requiresContext = true)  # Tracks that SDK is needed
+  getNotificationManager().notify(title, message)
+
+proc getAcceleration*(): Vector3 =
+  trackFeature(afSensors)
+  return getSensorManager().getAcceleration()
+
+proc enableLowLatencyAudio*() =
+  trackFeature(afLowLatencyAudio)  # Implies API 26+ needed
+  getAudioEngine().setLowLatency(true)
+
+## Automatic Analysis & Recommendations (Compile-Time)
+static:
+  echo "\n🔍 Android Feature Analysis:"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  # Determine minimum API level
+  var minApiRequired = 21
+  var recommendations: seq[string] = @[]
+  
+  if afLowLatencyAudio in usedFeatures:
+    minApiRequired = max(minApiRequired, 26)
+    recommendations.add("🎵 Low latency audio requires API 26+ (AAudio)")
+    
+  if afVulkan in usedFeatures:
+    minApiRequired = max(minApiRequired, 24)
+    recommendations.add("🎮 Vulkan graphics requires API 24+")
+    
+  if afThermal in usedFeatures:
+    minApiRequired = max(minApiRequired, 30)
+    recommendations.add("🌡️ Thermal monitoring requires API 30+")
+  
+  echo "📱 Minimum API Level: ", minApiRequired
+  echo "📊 Device Coverage: ~", getDeviceCoverage(minApiRequired), "%"
+  
+  # SDK requirement detection
+  if needsContext:
+    echo "☕ Java SDK Required: YES (notifications, permissions, system services)"
+    echo "📦 Add to your build.gradle:"
+    echo "   implementation 'org.nim-lang:android-runtime:1.0.0'"
+  else:
+    echo "🚀 Pure NDK: YES (maximum performance, no Java overhead)"
+    echo "📦 No additional dependencies needed"
+  
+  # Feature-specific recommendations
+  if recommendations.len > 0:
+    echo "\n💡 Recommendations:"
+    for rec in recommendations:
+      echo "   ", rec
+  
+  # Legacy fallback suggestions
+  if minApiRequired > 21:
+    echo "\n🔄 Legacy Fallbacks Available:"
+    if afLowLatencyAudio in usedFeatures:
+      echo "   • Low latency audio → OpenSL ES (higher latency but works on API 21+)"
+    if afVulkan in usedFeatures:
+      echo "   • Vulkan graphics → OpenGL ES 3.0 (reduced performance but works on API 21+)"
+
+## Automatic Runtime Initialization
+var androidRuntime {.global.}: AndroidRuntime
+
+proc initAndroidRuntime*() =
+  # Automatically determine what we need based on used features
+  static:
+    let runtimeMode = if needsContext: armHybrid else: armNdkOnly
+    
+  androidRuntime = AndroidRuntime(
+    mode: runtimeMode,
+    apiLevel: getCurrentApiLevel(),
+    context: when needsContext: autoDetectContext() else: none(AndroidContext),
+    usedFeatures: usedFeatures
+  )
+  
+  # Automatic capability validation
+  validateFeatures(androidRuntime)
+
+proc validateFeatures(runtime: AndroidRuntime) =
+  # Check if used features are actually available
+  for feature in runtime.usedFeatures:
+    if not isFeatureAvailable(runtime, feature):
+      let fallback = getFallbackStrategy(feature)
+      if fallback.isSome:
+        echo "⚠️ ", feature, " not available, using fallback: ", fallback.get()
+      else:
+        echo "❌ ", feature, " not available and no fallback exists"
+
+## Usage Examples - Zero Configuration Required
+
+# Example 1: Simple Audio App
+proc myAudioApp() =
+  # User just writes what they want
+  let musicBuffer = loadMusic("song.mp3")
+  playAudio(musicBuffer)  # Automatically tracks afAudio
+  
+  # At compile time, they get:
+  # 📱 Minimum API Level: 21
+  # 🚀 Pure NDK: YES
+  # No configuration needed!
+
+# Example 2: Pro Audio App  
+proc myProAudioApp() =
+  enableLowLatencyAudio()  # Automatically tracks afLowLatencyAudio
+  let buffer = recordMicrophone()
+  playAudio(buffer)
+  
+  # At compile time, they get:
+  # 📱 Minimum API Level: 26
+  # 📊 Device Coverage: ~85%
+  # 🎵 Low latency audio requires API 26+ (AAudio)
+  # 🔄 Legacy Fallback: OpenSL ES (higher latency but works on API 21+)
+
+# Example 3: Game with Notifications
+proc myGame() =
+  let playerPos = getAcceleration()  # Tracks afSensors
+  updatePlayer(playerPos)
+  
+  if playerScored():
+    showNotification("High Score!", "You got 1000 points!")  # Tracks afNotifications + needsContext
+  
+  # At compile time, they get:
+  # 📱 Minimum API Level: 21  
+  # ☕ Java SDK Required: YES
+  # 📦 Add to your build.gradle: implementation 'org.nim-lang:android-runtime:1.0.0'
+
+# Example 4: High-End Gaming
+proc myHighEndGame() =
+  enableVulkanGraphics()      # Tracks afVulkan
+  enableLowLatencyAudio()     # Tracks afLowLatencyAudio  
+  enableThermalMonitoring()   # Tracks afThermal
+  
+  # At compile time, they get:
+  # 📱 Minimum API Level: 30
+  # 📊 Device Coverage: ~65%
+  # 🎮 Vulkan graphics requires API 24+
+  # 🎵 Low latency audio requires API 26+
+  # 🌡️ Thermal monitoring requires API 30+
+  # 🔄 Consider legacy fallbacks for wider compatibility
+
+## Smart Context Detection (Automatic)
+proc autoDetectContext(): Option[AndroidContext] =
+  # Try multiple sources automatically
+  result = none(AndroidContext)
+  
+  # 1. From GameActivity (if available)
+  when compiles(getGameActivityContext()):
+    if let ctx = getGameActivityContext():
+      return some(ctx)
+  
+  # 2. From NativeActivity
+  when compiles(getNativeActivityContext()):
+    if let ctx = getNativeActivityContext():
+      return some(ctx)
+      
+  # 3. From JNI global reference (if set by user)
+  if globalJNIContext.isSome:
+    return globalJNIContext
+    
+  # 4. Prompt user with helpful error
+  {.error: """
+  Java SDK context required but not found. 
+  
+  Add ONE of these to your main function:
+    setAndroidContext(activity, env)           # Manual
+    useGameActivity()                          # GameActivity integration  
+    useNativeActivity()                        # NativeActivity integration
+  
+  Or disable features that need Java SDK context.
+  """.}
+
+## Developer Experience - Multiple Approaches
+
+# Approach 1: Zero Configuration (Recommended for most)
+proc main() =
+  initAndroidRuntime()  # Automatic based on usage
+  
+  playAudio(loadSound("beep.wav"))
+  showNotification("App Started", "Ready to use")
+  
+  gameLoop()
+
+# Approach 2: Manual Control (Power users)
+proc main() =
+  let runtime = AndroidRuntime(
+    mode: armNdkOnly,  # Manual choice
+    apiLevel: 24,      # Manual minimum
+    context: none(AndroidContext)
+  )
+  setAndroidRuntime(runtime)
+  
+  # Direct layer access
+  import android/raw/aaudio
+  let stream = AAudioStreamBuilder_new()
+
+# Approach 3: Hybrid (Config + Auto)  
+proc main() =
+  # Configure preferences, auto-fill the rest
+  setMinApiLevel(26)        # I'm okay with API 26+
+  preferNdkWhenPossible()   # Use NDK for performance
+  
+  initAndroidRuntime()      # Auto-detect based on preferences + usage
+  
+  myApp()
+
+## Build Integration (Automatic)
+static:
+  # Generate Android manifest entries
+  when needsContext:
+    generateManifestPermissions()
+    generateGradleDependencies()
+  
+  # Generate feature warnings for app store
+  generatePlayStoreFeatureList(usedFeatures)
+
+# Generated build.gradle additions:
+when needsContext:
+  {.emit: """
+  dependencies {
+      implementation 'org.nim-lang:android-runtime:1.0.0'
+  }
+  """.}

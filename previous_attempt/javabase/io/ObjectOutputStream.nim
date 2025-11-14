@@ -1,0 +1,51 @@
+import jnim
+
+jclass java.io.ObjectOutputStream* of OutputStream:
+  proc useProtocolVersion*(version: jint)
+  proc writeObject*(obj: JObject)
+  proc writeUnshared*(obj: JObject)
+  proc defaultWriteObject*()
+  proc putFields*(): ObjectOutputStream.PutField
+  proc writeFields*()
+  proc reset*()
+  proc write*(val: jint)
+  proc write*(buf: seq[jbyte])
+  proc write*(buf: seq[jbyte], off: jint, len: jint)
+  proc flush*()
+  proc close*()
+  proc writeBoolean*(val: jboolean)
+  proc writeByte*(val: jint)
+  proc writeShort*(val: jint)
+  proc writeChar*(val: jint)
+  proc writeInt*(val: jint)
+  proc writeLong*(val: jlong)
+  proc writeFloat*(val: jfloat)
+  proc writeDouble*(val: jdouble)
+  proc writeBytes*(str: string)
+  proc writeChars*(str: string)
+  proc writeUTF*(str: string)
+
+jclass java.io.ObjectOutputStream.PutField* of JVMObject:
+  proc put*(name: string, val: jboolean)
+  proc put*(name: string, val: jbyte)
+  proc put*(name: string, val: jchar)
+  proc put*(name: string, val: jshort)
+  proc put*(name: string, val: jint)
+  proc put*(name: string, val: jlong)
+  proc put*(name: string, val: jfloat)
+  proc put*(name: string, val: jdouble)
+  proc put*(name: string, val: JObject)
+  proc write*(output:ObjectOutput)
+
+jclass java.io.PutField* of JVMObject:
+  proc put*(name: string, val: jboolean)
+  proc put*(name: string, val: jbyte)
+  proc put*(name: string, val: jchar)
+  proc put*(name: string, val: jshort)
+  proc put*(name: string, val: jint)
+  proc put*(name: string, val: jlong)
+  proc put*(name: string, val: jfloat)
+  proc put*(name: string, val: jdouble)
+  proc put*(name: string, val: JObject)
+  proc write*(output:ObjectOutput)
+
