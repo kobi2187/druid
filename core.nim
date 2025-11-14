@@ -32,6 +32,15 @@ type
   SdkSchedulerManager* = ref object
   SdkBackgroundTaskManager* = ref object
   SdkEventBusManager* = ref object
+  # Feature managers
+  SdkNetworkManager* = ref object
+  SdkSensorManager* = ref object
+  SdkCameraManager* = ref object
+  SdkMediaManager* = ref object
+  # Extra managers (Phase 5)
+  SdkCryptographyManager* = ref object
+  SdkFileManager* = ref object
+  SdkBiometricManager* = ref object
   # Future NDK/hybrid managers:
   # AudioManager* = ref object  # Will auto-select NDK or SDK
   # CameraManager* = ref object # Will auto-select NDK or SDK
@@ -75,6 +84,15 @@ type
     sdkSchedulerManager: Option[SdkSchedulerManager]
     sdkBackgroundTaskManager: Option[SdkBackgroundTaskManager]
     sdkEventBusManager: Option[SdkEventBusManager]
+    # Feature managers
+    sdkNetworkManager: Option[SdkNetworkManager]
+    sdkSensorManager: Option[SdkSensorManager]
+    sdkCameraManager: Option[SdkCameraManager]
+    sdkMediaManager: Option[SdkMediaManager]
+    # Extra managers
+    sdkCryptographyManager: Option[SdkCryptographyManager]
+    sdkFileManager: Option[SdkFileManager]
+    sdkBiometricManager: Option[SdkBiometricManager]
 
     # Feature tracking
     enabledFeatures: set[AndroidFeature]

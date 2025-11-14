@@ -96,6 +96,29 @@ export background_task_manager
 import managers/system/EventBusManager/event_bus_manager
 export event_bus_manager
 
+# Feature managers (Phase 4)
+import managers/features/NetworkManager/network_manager
+export network_manager
+
+import managers/features/SensorManager/sensor_manager
+export sensor_manager
+
+import managers/features/CameraManager/camera_manager
+export camera_manager
+
+import managers/features/MediaManager/media_manager
+export media_manager
+
+# Extra managers (Phase 5)
+import managers/extra/CryptographyManager/cryptography_manager
+export cryptography_manager
+
+import managers/extra/FileManager/file_manager
+export file_manager
+
+import managers/extra/BiometricManager/biometric_manager
+export biometric_manager
+
 # Version info
 const
   DruidVersionMajor* = 0
