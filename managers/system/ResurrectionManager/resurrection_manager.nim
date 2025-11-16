@@ -120,7 +120,7 @@ proc hookIntoLifecycle(rm: SdkResurrectionManager) =
   let sm = rm.stateManager.get()
 
   # Hook onSaveInstanceState - serialize all tracked state
-  lm.onSaveInstanceState(proc(bundle: JObject) =
+  lm.onSaveInstanceState(proc(bundle: jobject) =
     # Save all keepAlive state (must survive process death)
     for key, entry in rm.trackedState:
       if entry.scope == ssAlive:
@@ -138,7 +138,7 @@ proc hookIntoLifecycle(rm: SdkResurrectionManager) =
   )
 
   # Hook onRestoreInstanceState - detect resurrection and restore
-  lm.onRestoreInstanceState(proc(bundle: JObject) =
+  lm.onRestoreInstanceState(proc(bundle: jobject) =
     # Check if we were previously paused (resurrection detection)
     let wasPaused = sm.getBool(bundle, "druid_has_paused", false)
 

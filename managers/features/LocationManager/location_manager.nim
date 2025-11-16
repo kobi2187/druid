@@ -21,15 +21,15 @@ import options
 import times
 import tables
 
-jnimport:
-  import android.content.Context
-  import android.location.LocationManager as JLM
-  import android.location.Location as JLocation
-  import android.location.LocationListener
-  import android.location.Criteria
-  import android.os.Bundle
-  import android.os.Looper
-
+# jnimport:
+#   import android.content.Context
+#   import android.location.LocationManager as JLM
+#   import android.location.Location as JLocation
+#   import android.location.LocationListener
+#   import android.location.Criteria
+#   import android.os.Bundle
+#   import android.os.Looper
+# 
 type
   LocationAccuracy* = enum
     ## Location accuracy levels
@@ -59,15 +59,15 @@ type
   LocationCallback* = proc(location: Location) {.closure.}
 
   SdkLocationManager* = ref object
-    context: JObject
-    locationManager: JObject
+    context: jobject
+    locationManager: jobject
     apiLevel: int
     activeCallbacks: Table[string, LocationCallback]
     # TODO: Add systemPrefs when implementing preference system
     # systemPrefs*: LocationSystemPrefs
 
 # Helper to convert Java Location to Nim Location
-proc toLocation(jloc: JObject): Location =
+proc toLocation(jloc: jobject): Location =
   ## Convert Java android.location.Location to Nim Location
   result.latitude = jloc.call("getLatitude").doubleVal
   result.longitude = jloc.call("getLongitude").doubleVal

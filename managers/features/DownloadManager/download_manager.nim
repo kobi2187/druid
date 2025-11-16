@@ -23,12 +23,12 @@ import ../../../art  # For API level detection
 import jnim
 import options
 
-jnimport:
-  import android.content.Context
-  import android.app.DownloadManager as JDM
-  import android.net.Uri
-  import android.database.Cursor
-
+# jnimport:
+#   import android.content.Context
+#   import android.app.DownloadManager as JDM
+#   import android.net.Uri
+#   import android.database.Cursor
+# 
 type
   DownloadStatus* = enum
     ## Download status
@@ -55,8 +55,8 @@ type
     localUri*: string   ## Local file path after download
 
   SdkDownloadManager* = ref object
-    context: JObject
-    downloadManager: JObject
+    context: jobject
+    downloadManager: jobject
     apiLevel: int
 
 proc init*(_: typedesc[SdkDownloadManager]): SdkDownloadManager =

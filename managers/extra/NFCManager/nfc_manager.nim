@@ -44,14 +44,14 @@ import sequtils
 # Forward declarations
 type
   SdkNfcManager* = ref object
-    nfcAdapter: JObject  ## android.nfc.NfcAdapter
-    currentActivity: JObject  ## Activity for foreground dispatch
-    pendingIntent: JObject  ## PendingIntent for foreground dispatch
+    nfcAdapter: jobject  ## android.nfc.NfcAdapter
+    currentActivity: jobject  ## Activity for foreground dispatch
+    pendingIntent: jobject  ## PendingIntent for foreground dispatch
     isForegroundDispatchEnabled: bool
 
   NfcTag* = object
     ## Represents an NFC tag
-    tag: JObject  ## android.nfc.Tag
+    tag: jobject  ## android.nfc.Tag
     id*: seq[byte]  ## Tag UID
     techList*: seq[string]  ## Available technologies
     tagType*: NfcTagType
@@ -70,12 +70,12 @@ type
 
   NdefMessage* = object
     ## NDEF (NFC Data Exchange Format) message
-    message: JObject  ## android.nfc.NdefMessage
+    message: jobject  ## android.nfc.NdefMessage
     records*: seq[NdefRecord]
 
   NdefRecord* = object
     ## NDEF record containing data
-    record: JObject  ## android.nfc.NdefRecord
+    record: jobject  ## android.nfc.NdefRecord
     tnf*: TypeNameFormat  ## Type Name Format
     recordType*: seq[byte]  ## Record type
     id*: seq[byte]  ## Record ID
@@ -92,38 +92,38 @@ type
     tnfUnchanged = 0x06  ## Unchanged (chunked records)
 
 # JNI class bindings
-jclass android.nfc.NfcAdapter of JObject:
-  proc getDefaultAdapter(context: JObject): JObject {.static.}
+jclass android.nfc.NfcAdapter of jobject:
+  proc getDefaultAdapter(context: jobject): jobject {.static.}
   proc isEnabled(): bool
-  proc enableForegroundDispatch(activity: JObject, intent: JObject,
-                                filters: JObject, techLists: JObject): void
-  proc disableForegroundDispatch(activity: JObject): void
+  proc enableForegroundDispatch(activity: jobject, intent: jobject,
+                                filters: jobject, techLists: jobject): void
+  proc disableForegroundDispatch(activity: jobject): void
 
-jclass android.nfc.Tag of JObject:
+jclass android.nfc.Tag of jobject:
   proc getId(): jByteArray
-  proc getTechList(): JObject  # String[]
+  proc getTechList(): jobject  # String[]
 
-jclass android.nfc.NdefMessage of JObject:
-  proc `new`(records: JObject): void {.constructor.}  # NdefRecord[]
-  proc getRecords(): JObject  # NdefRecord[]
+jclass android.nfc.NdefMessage of jobject:
+  proc `new`(records: jobject): void {.constructor.}  # NdefRecord[]
+  proc getRecords(): jobject  # NdefRecord[]
 
-jclass android.nfc.NdefRecord of JObject:
+jclass android.nfc.NdefRecord of jobject:
   proc `new`(tnf: jshort, recordType: jByteArray, id: jByteArray,
             payload: jByteArray): void {.constructor.}
   proc getTnf(): jshort
   proc getType(): jByteArray
   proc getId(): jByteArray
   proc getPayload(): jByteArray
-  proc createTextRecord(languageCode: JString, text: JString): JObject {.static.}
-  proc createUri(uriString: JString): JObject {.static.}
+  proc createTextRecord(languageCode: JString, text: JString): jobject {.static.}
+  proc createUri(uriString: JString): jobject {.static.}
 
-jclass android.nfc.tech.Ndef of JObject:
-  proc get(tag: JObject): JObject {.static.}  # Returns Ndef
+jclass android.nfc.tech.Ndef of jobject:
+  proc get(tag: jobject): jobject {.static.}  # Returns Ndef
   proc connect(): void
   proc close(): void
   proc isConnected(): bool
-  proc getCachedNdefMessage(): JObject  # NdefMessage
-  proc writeNdefMessage(message: JObject): void
+  proc getCachedNdefMessage(): jobject  # NdefMessage
+  proc writeNdefMessage(message: jobject): void
   proc isWritable(): bool
   proc canMakeReadOnly(): bool
   proc makeReadOnly(): bool
@@ -143,7 +143,7 @@ var globalNfcManager: SdkNfcManager = nil
 # Initialization
 #------------------
 
-proc initNfcManager*(context: JObject): SdkNfcManager =
+proc initNfcManager*(context: jobject): SdkNfcManager =
   ## Initialize the NFC manager with an Android Context
   ##
   ## Context is typically an Activity. Returns nil if NFC is not supported.
@@ -256,7 +256,7 @@ proc isForegroundDispatchEnabled*(nfcm: SdkNfcManager): bool =
 # Tag Operations
 #------------------
 
-proc parseTag*(nfcm: SdkNfcManager, tagObject: JObject): NfcTag =
+proc parseTag*(nfcm: SdkNfcManager, tagObject: jobject): NfcTag =
   ## Parse an android.nfc.Tag object into our NfcTag type
   ##
   ## Internal helper for converting JNI Tag objects.
@@ -445,7 +445,7 @@ proc createNdefMessage*(nfcm: SdkNfcManager,
   ##
   ## Used for writing custom NDEF data to tags.
   try:
-    # TODO: Convert seq[NdefRecord] to JObject array
+    # TODO: Convert seq[NdefRecord] to jobject array
     # For now, create empty message
     echo "NFCManager: createNdefMessage requires NdefRecord[] construction"
 

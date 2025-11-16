@@ -46,14 +46,14 @@ import ../../../common
 # import nimcrypto/[aes, sha2, hmac, pbkdf2, rijndael]
 
 # JNI bindings for Android Keystore
-jnimport:
-  import android.security.keystore.KeyGenParameterSpec
-  import android.security.keystore.KeyProperties
-  import java.security.KeyStore as JKeyStore
-  import javax.crypto.KeyGenerator
-  import javax.crypto.SecretKey
-  import java.security.SecureRandom
-
+# jnimport:
+#   import android.security.keystore.KeyGenParameterSpec
+#   import android.security.keystore.KeyProperties
+#   import java.security.KeyStore as JKeyStore
+#   import javax.crypto.KeyGenerator
+#   import javax.crypto.SecretKey
+#   import java.security.SecureRandom
+# 
 type
   EncryptionAlgorithm* = enum
     ## Supported encryption algorithms
@@ -81,9 +81,9 @@ type
 
   SdkCryptographyManager* = ref object
     ## Manager for encryption and key management
-    keyStore: Option[JObject]
-    keyGenerator: Option[JObject]
-    secureRandom: JObject
+    keyStore: Option[jobject]
+    keyGenerator: Option[jobject]
+    secureRandom: jobject
     # Cached keys (in-memory cache of Keystore keys)
     cachedKeys: Table[string, seq[byte]]
 

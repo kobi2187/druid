@@ -34,11 +34,11 @@ import options
 import ../../../core
 
 # JNI bindings for MediaPlayer
-jnimport:
-  import android.content.Context
-  import android.media.MediaPlayer as JMP
-  import android.view.SurfaceHolder
-
+# jnimport:
+#   import android.content.Context
+#   import android.media.MediaPlayer as JMP
+#   import android.view.SurfaceHolder
+# 
 type
   PlaybackState* = enum
     ## Media playback state
@@ -64,7 +64,7 @@ type
 
   MediaPlayer* = ref object
     ## Wrapper for Android MediaPlayer
-    mediaPlayer: JObject
+    mediaPlayer: jobject
     mediaType: MediaType
     state: PlaybackState
     filePath: string
@@ -176,7 +176,7 @@ proc createVideoPlayer*(mm: SdkMediaManager, filePath: string): MediaPlayer =
     echo "Error creating video player: ", getCurrentExceptionMsg()
     result = MediaPlayer(state: psError)
 
-proc setSurface*(player: MediaPlayer, surface: JObject) =
+proc setSurface*(player: MediaPlayer, surface: jobject) =
   ## Set surface for video rendering
   ##
   ## Args:

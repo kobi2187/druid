@@ -14,16 +14,16 @@ import jnim
 import options
 import tables
 
-jnimport:
-  import android.content.Context
-  import android.app.NotificationManager as JNM
-  import android.app.Notification
-  import android.app.NotificationChannel
-  import android.app.PendingIntent
-  import android.content.Intent
-  import androidx.core.app.NotificationCompat
-  import androidx.core.app.NotificationCompat$Builder
-
+# jnimport:
+#   import android.content.Context
+#   import android.app.NotificationManager as JNM
+#   import android.app.Notification
+#   import android.app.NotificationChannel
+#   import android.app.PendingIntent
+#   import android.content.Intent
+#   import androidx.core.app.NotificationCompat
+#   import androidx.core.app.NotificationCompat$Builder
+# 
 type
   NotificationImportance* = enum
     ## Notification importance levels (API 26+)
@@ -52,8 +52,8 @@ type
     # TODO: Add actions, custom layout, etc.
 
   SdkNotificationManager* = ref object
-    context: JObject
-    notificationManager: JObject
+    context: jobject
+    notificationManager: jobject
     apiLevel: int
     createdChannels: Table[string, bool]
 

@@ -46,13 +46,13 @@ import hashes
 import ../../../core
 
 # JNI bindings for sensors
-jnimport:
-  import android.content.Context
-  import android.hardware.SensorManager as JSM
-  import android.hardware.Sensor as JSensor
-  import android.hardware.SensorEvent
-  import android.hardware.SensorEventListener
-
+# jnimport:
+#   import android.content.Context
+#   import android.hardware.SensorManager as JSM
+#   import android.hardware.Sensor as JSensor
+#   import android.hardware.SensorEvent
+#   import android.hardware.SensorEventListener
+# 
 type
   SensorType* = enum
     ## Available sensor types
@@ -132,8 +132,8 @@ type
 
   SdkSensorManager* = ref object
     ## Manager for device sensors
-    sensorManager: JObject
-    availableSensors: Table[SensorType, JObject]  # Sensor objects
+    sensorManager: jobject
+    availableSensors: Table[SensorType, jobject]  # Sensor objects
     activeSensors: Table[SensorType, bool]  # Which sensors are listening
     callbacks: Table[SensorType, SensorCallback]
 
@@ -177,7 +177,7 @@ proc newSdkSensorManager*(): SdkSensorManager =
 
   result = SdkSensorManager(
     sensorManager: sm,
-    availableSensors: initTable[SensorType, JObject](),
+    availableSensors: initTable[SensorType, jobject](),
     activeSensors: initTable[SensorType, bool](),
     callbacks: initTable[SensorType, SensorCallback]()
   )

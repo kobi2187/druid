@@ -37,12 +37,12 @@ import ../../../core
 import ../../../common
 
 # JNI bindings for BiometricPrompt
-jnimport:
-  import android.content.Context
-  import androidx.biometric.BiometricManager as JBM
-  import androidx.biometric.BiometricPrompt as JBP
-  import androidx.fragment.app.FragmentActivity
-
+# jnimport:
+#   import android.content.Context
+#   import androidx.biometric.BiometricManager as JBM
+#   import androidx.biometric.BiometricPrompt as JBP
+#   import androidx.fragment.app.FragmentActivity
+# 
 type
   BiometricAuthenticator* = enum
     ## Types of biometric authenticators
@@ -74,7 +74,7 @@ type
 
   SdkBiometricManager* = ref object
     ## Manager for biometric authentication
-    biometricManager: Option[JObject]
+    biometricManager: Option[jobject]
     isAvailable: bool
 
 #
@@ -227,8 +227,8 @@ proc authenticate*(bm: SdkBiometricManager,
 
 proc authenticateWithCrypto*(bm: SdkBiometricManager,
                             title: string,
-                            cryptoObject: JObject,  # BiometricPrompt.CryptoObject
-                            onSuccess: proc(cryptoObject: JObject),
+                            cryptoObject: jobject,  # BiometricPrompt.CryptoObject
+                            onSuccess: proc(cryptoObject: jobject),
                             onError: proc(error: string)) =
   ## Authenticate with crypto object
   ##

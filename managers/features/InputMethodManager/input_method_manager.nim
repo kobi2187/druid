@@ -17,15 +17,15 @@ import ../../../art  # For API level detection
 import jnim
 import options
 
-jnimport:
-  import android.content.Context
-  import android.view.View
-  import android.view.inputmethod.InputMethodManager as JIMM
-
+# jnimport:
+#   import android.content.Context
+#   import android.view.View
+#   import android.view.inputmethod.InputMethodManager as JIMM
+# 
 type
   SdkInputMethodManager* = ref object
-    context: JObject
-    inputMethodManager: JObject
+    context: jobject
+    inputMethodManager: jobject
     apiLevel: int
 
 proc init*(_: typedesc[SdkInputMethodManager]): SdkInputMethodManager =
@@ -38,7 +38,7 @@ proc init*(_: typedesc[SdkInputMethodManager]): SdkInputMethodManager =
   let serviceName = "input_method".toJString
   result.inputMethodManager = result.context.getSystemService(serviceName)
 
-proc showSoftKeyboard*(imm: SdkInputMethodManager, view: JObject, flags: int = 1) =
+proc showSoftKeyboard*(imm: SdkInputMethodManager, view: jobject, flags: int = 1) =
   ## Show soft keyboard for a view
   ##
   ## Args:
@@ -54,7 +54,7 @@ proc showSoftKeyboard*(imm: SdkInputMethodManager, view: JObject, flags: int = 1
 
   imm.inputMethodManager.call("showSoftInput", view, flags.jint)
 
-proc hideSoftKeyboard*(imm: SdkInputMethodManager, view: JObject, flags: int = 0) =
+proc hideSoftKeyboard*(imm: SdkInputMethodManager, view: jobject, flags: int = 0) =
   ## Hide soft keyboard from a view
   ##
   ## Args:

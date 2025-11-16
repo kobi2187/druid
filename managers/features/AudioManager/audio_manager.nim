@@ -27,13 +27,13 @@ import jnim
 import options
 import tables
 
-jnimport:
-  import android.content.Context
-  import android.media.MediaPlayer
-  import android.media.AudioManager as JAM
-  import android.net.Uri
-  import java.io.File
-
+# jnimport:
+#   import android.content.Context
+#   import android.media.MediaPlayer
+#   import android.media.AudioManager as JAM
+#   import android.net.Uri
+#   import java.io.File
+# 
 type
   RingerMode* = enum
     ## System ringer modes
@@ -54,13 +54,13 @@ type
   SimpleAudioPlayer* = ref object
     ## Simple audio player (basic implementation)
     ## TODO: Replace with full AudioStream from niceapi.txt
-    mediaPlayer: JObject
+    mediaPlayer: jobject
     filePath: string
     isPlaying: bool
 
   SdkAudioManager* = ref object
-    context: JObject
-    audioManager: JObject
+    context: jobject
+    audioManager: jobject
     apiLevel: int
     activePlayers: Table[string, SimpleAudioPlayer]
     # TODO: Add systemPrefs when implementing preference system

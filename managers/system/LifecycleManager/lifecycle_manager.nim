@@ -50,7 +50,7 @@ type
     lsDestroyed = "DESTROYED"
 
   LifecycleCallback* = proc() {.closure.}
-  LifecycleBundleCallback* = proc(bundle: JObject) {.closure.}
+  LifecycleBundleCallback* = proc(bundle: jobject) {.closure.}
 
   CallbackList = seq[LifecycleCallback]
   BundleCallbackList = seq[LifecycleBundleCallback]
@@ -239,7 +239,7 @@ proc dispatchCallbacks(callbacks: CallbackList) =
       # TODO: Better error handling - log to Android logcat
       echo "Error in lifecycle callback: ", getCurrentExceptionMsg()
 
-proc dispatchBundleCallbacks(callbacks: BundleCallbackList, bundle: JObject) =
+proc dispatchBundleCallbacks(callbacks: BundleCallbackList, bundle: jobject) =
   ## Internal: Execute all bundle callbacks
   for callback in callbacks:
     try:
@@ -281,11 +281,11 @@ proc dispatchOnLowMemory(lm: SdkLifecycleManager) =
   lm.addToHistory(leLowMemory)
   dispatchCallbacks(lm.onLowMemoryCallbacks)
 
-proc dispatchOnSaveInstance(lm: SdkLifecycleManager, bundle: JObject) =
+proc dispatchOnSaveInstance(lm: SdkLifecycleManager, bundle: jobject) =
   lm.addToHistory(leSaveInstance)
   dispatchBundleCallbacks(lm.onSaveInstanceCallbacks, bundle)
 
-proc dispatchOnRestoreInstance(lm: SdkLifecycleManager, bundle: JObject) =
+proc dispatchOnRestoreInstance(lm: SdkLifecycleManager, bundle: jobject) =
   lm.addToHistory(leRestoreInstance)
   dispatchBundleCallbacks(lm.onRestoreInstanceCallbacks, bundle)
 
@@ -373,14 +373,14 @@ proc NimLifecycle_onLowMemory*() {.exportc, dynlib.} =
   if globalLifecycleManager != nil:
     globalLifecycleManager.dispatchOnLowMemory()
 
-# Note: JObject parameters require proper JNI setup
+# Note: jobject parameters require proper JNI setup
 # These will be called with Bundle objects from Java
-proc NimLifecycle_onSaveInstanceState*(bundle: JObject) {.exportc, dynlib.} =
+proc NimLifecycle_onSaveInstanceState*(bundle: jobject) {.exportc, dynlib.} =
   ## Called from Android Activity.onSaveInstanceState(Bundle)
   if globalLifecycleManager != nil:
     globalLifecycleManager.dispatchOnSaveInstance(bundle)
 
-proc NimLifecycle_onRestoreInstanceState*(bundle: JObject) {.exportc, dynlib.} =
+proc NimLifecycle_onRestoreInstanceState*(bundle: jobject) {.exportc, dynlib.} =
   ## Called from Android Activity.onRestoreInstanceState(Bundle)
   if globalLifecycleManager != nil:
     globalLifecycleManager.dispatchOnRestoreInstance(bundle)

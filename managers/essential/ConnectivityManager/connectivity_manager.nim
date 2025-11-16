@@ -15,13 +15,13 @@ import jnim
 import options
 import tables
 
-jnimport:
-  import android.content.Context
-  import android.net.ConnectivityManager as JCM
-  import android.net.NetworkInfo
-  import android.net.Network
-  import android.net.NetworkCapabilities
-
+# jnimport:
+#   import android.content.Context
+#   import android.net.ConnectivityManager as JCM
+#   import android.net.NetworkInfo
+#   import android.net.Network
+#   import android.net.NetworkCapabilities
+# 
 type
   NetworkType* = enum
     ntNone = 0         ## No network connection
@@ -40,8 +40,8 @@ type
     isRoaming*: bool
 
   SdkConnectivityManager* = ref object
-    context: JObject
-    connectivityManager: JObject
+    context: jobject
+    connectivityManager: jobject
     apiLevel: int
 
 proc init*(_: typedesc[SdkConnectivityManager]): SdkConnectivityManager =

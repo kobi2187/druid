@@ -12,7 +12,7 @@
 ##   import druid
 ##
 ##   # In your Android Application onCreate():
-##   proc initDruid*(ctx: JObject) {.exportc, dynlib.} =
+##   proc initDruid*(ctx: jobject) {.exportc, dynlib.} =
 ##     discard init(ctx)
 ##
 ##   # Then use services:
@@ -24,8 +24,13 @@
 ##   clipboard().setText("Copied!")
 
 # Re-export main modules
+import core
 export core
+
+import common
 export common
+
+import art
 export art
 
 # Re-export SDK managers

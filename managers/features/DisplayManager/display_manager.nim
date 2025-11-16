@@ -20,13 +20,13 @@ import ../../../art  # For API level detection
 import jnim
 import options
 
-jnimport:
-  import android.content.Context
-  import android.view.WindowManager
-  import android.view.Display
-  import android.util.DisplayMetrics
-  import android.content.res.Resources
-
+# jnimport:
+#   import android.content.Context
+#   import android.view.WindowManager
+#   import android.view.Display
+#   import android.util.DisplayMetrics
+#   import android.content.res.Resources
+# 
 type
   ScreenOrientation* = enum
     ## Screen orientation
@@ -66,10 +66,10 @@ type
     refreshRate*: float     ## Display refresh rate in Hz
 
   SdkDisplayManager* = ref object
-    context: JObject
-    windowManager: JObject
-    display: JObject
-    displayMetrics: JObject
+    context: jobject
+    windowManager: jobject
+    display: jobject
+    displayMetrics: jobject
     apiLevel: int
 
 proc init*(_: typedesc[SdkDisplayManager]): SdkDisplayManager =

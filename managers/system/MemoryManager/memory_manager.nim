@@ -42,11 +42,11 @@ import ../../../core
 import ../LifecycleManager/lifecycle_manager
 
 # JNI bindings
-jnimport:
-  import android.app.ActivityManager as JAM
-  import android.app.ActivityManager$MemoryInfo as MemoryInfo
-  import android.content.Context
-
+# jnimport:
+#   import android.app.ActivityManager as JAM
+#   import android.app.ActivityManager$MemoryInfo as MemoryInfo
+#   import android.content.Context
+# 
 type
   MemoryClass* = enum
     ## Device memory class (affects what you can cache)
@@ -68,7 +68,7 @@ type
     clearCallback: proc()
 
   SdkMemoryManager* = ref object
-    activityManager: JObject
+    activityManager: jobject
     lowMemoryCallbacks: seq[proc()]
     registeredCaches: seq[MemoryCache]
     memoryClass: MemoryClass

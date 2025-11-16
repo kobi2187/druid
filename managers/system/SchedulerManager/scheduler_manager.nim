@@ -44,13 +44,13 @@ import hashes
 import ../../../core
 
 # JNI bindings
-jnimport:
-  import android.app.job.JobScheduler as JJobScheduler
-  import android.app.job.JobInfo as JJobInfo
-  import android.app.AlarmManager as JAlarmManager
-  import android.os.Build as JBuild
-  import android.content.Context
-
+# jnimport:
+#   import android.app.job.JobScheduler as JJobScheduler
+#   import android.app.job.JobInfo as JJobInfo
+#   import android.app.AlarmManager as JAlarmManager
+#   import android.os.Build as JBuild
+#   import android.content.Context
+# 
 type
   ScheduleConstraints* = object
     ## Constraints for when task should run
@@ -73,8 +73,8 @@ type
   SdkSchedulerManager* = ref object
     ## Manager for task scheduling
     backend: SchedulerBackend
-    jobScheduler: Option[JObject]
-    alarmManager: Option[JObject]
+    jobScheduler: Option[jobject]
+    alarmManager: Option[jobject]
     scheduledTasks: Table[string, ScheduledTask]
 
 #

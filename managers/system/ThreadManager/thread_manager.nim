@@ -38,14 +38,14 @@ import options
 import ../../../core
 
 # JNI bindings for Android threading
-jnimport:
-  import android.os.Handler as JHandler
-  import android.os.Looper as JLooper
-  import java.util.concurrent.Executors as JExecutors
-  import java.util.concurrent.ExecutorService as JExecutorService
-  import java.util.concurrent.Callable as JCallable
-  import java.lang.Runnable as JRunnable
-
+# jnimport:
+#   import android.os.Handler as JHandler
+#   import android.os.Looper as JLooper
+#   import java.util.concurrent.Executors as JExecutors
+#   import java.util.concurrent.ExecutorService as JExecutorService
+#   import java.util.concurrent.Callable as JCallable
+#   import java.lang.Runnable as JRunnable
+# 
 type
   ThreadPriority* = enum
     ## Thread priority levels
@@ -63,8 +63,8 @@ type
 
   SdkThreadManager* = ref object
     ## Manager for threading operations
-    mainHandler: JObject  # Android Handler for main thread
-    backgroundExecutor: JObject  # ExecutorService for background work
+    mainHandler: jobject  # Android Handler for main thread
+    backgroundExecutor: jobject  # ExecutorService for background work
     poolType: ThreadPoolType
     poolSize: int
 
@@ -286,7 +286,7 @@ proc isShutdown*(tm: SdkThreadManager): bool =
 proc getCpuCount*(): int =
   ## Get number of CPU cores
   ## Useful for sizing thread pools
-  let runtime = JObject.call("java/lang/Runtime", "getRuntime")
+  let runtime = jobject.call("java/lang/Runtime", "getRuntime")
   return runtime.call("availableProcessors").intValue
 
 proc getRecommendedPoolSize*(): int =

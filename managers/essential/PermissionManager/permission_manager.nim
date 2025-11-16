@@ -17,11 +17,11 @@ import asyncdispatch
 import tables
 import options
 
-jnimport:
-  import android.content.Context
-  import android.app.Activity
-  import android.content.pm.PackageManager as JPM
-
+# jnimport:
+#   import android.content.Context
+#   import android.app.Activity
+#   import android.content.pm.PackageManager as JPM
+# 
 type
   PermissionResult* = object
     ## Result of a permission request
@@ -29,7 +29,7 @@ type
     denied*: seq[AndroidPermission]   ## Permissions that were denied
 
   SdkPermissionManager* = ref object
-    context: JObject
+    context: jobject
     apiLevel: int
     # Pending permission requests (keyed by request code)
     pendingRequests: Table[int, Future[bool]]

@@ -1,8 +1,7 @@
 import jnim
 
-jnimport:
-  import android.os.Build
-  import android.os.Build$VERSION
+# TODO: Implement proper JNI binding for Build.VERSION.SDK_INT
+# For now, provide a stub implementation
 
 type
   AndroidDeviceInfo* = object
@@ -19,7 +18,11 @@ proc detectApiLevel*(): int =
   ## Example: 21 (Lollipop), 26 (Oreo), 30 (Android 11), 34 (Android 14)
   ##
   ## This uses Build.VERSION.SDK_INT
-  return Build$VERSION.SDK_INT.int
+  ## TODO: Implement proper JNI binding
+  when defined(android):
+    {.error: "Build.VERSION.SDK_INT binding not yet implemented for jnim 0.5.2".}
+  else:
+    return 21  # Stub for non-Android builds
 
 proc detectDeviceCapabilities*(): AndroidDeviceInfo =
   ## Detect device capabilities and hardware features

@@ -46,9 +46,9 @@ import ../../../core
 # JNI bindings for WorkManager
 # Note: WorkManager is part of AndroidX (Jetpack), not Android SDK
 # Apps need to include the dependency
-jnimport:
-  import android.content.Context
-
+# jnimport:
+#   import android.content.Context
+# 
 type
   WorkConstraints* = object
     ## Constraints for when work should run
@@ -74,7 +74,7 @@ type
 
   SdkBackgroundTaskManager* = ref object
     ## Manager for background tasks via WorkManager
-    workManager: Option[JObject]
+    workManager: Option[jobject]
     isWorkManagerAvailable: bool
     trackedWork: Table[string, WorkHandle]
 

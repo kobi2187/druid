@@ -13,11 +13,11 @@ import ../../../art  # For API level detection
 import jnim
 import options
 
-jnimport:
-  import android.content.Context
-  import android.os.Vibrator
-  import android.os.VibrationEffect
-
+# jnimport:
+#   import android.content.Context
+#   import android.os.Vibrator
+#   import android.os.VibrationEffect
+# 
 type
   VibrationIntensity* = enum
     ## Vibration intensity levels (API 26+)
@@ -27,8 +27,8 @@ type
     viHard = 255      # Hard/strong vibration
 
   SdkVibrationManager* = ref object
-    context: JObject
-    vibrator: JObject
+    context: jobject
+    vibrator: jobject
     apiLevel: int
     hasVibrator: Option[bool]
     hasAmplitudeControl: Option[bool]

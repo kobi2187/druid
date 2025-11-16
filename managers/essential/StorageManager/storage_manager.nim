@@ -15,12 +15,12 @@ import jnim
 import options
 import os
 
-jnimport:
-  import android.content.Context
-  import android.os.Environment
-  import android.os.StatFs
-  import java.io.File
-
+# jnimport:
+#   import android.content.Context
+#   import android.os.Environment
+#   import android.os.StatFs
+#   import java.io.File
+# 
 type
   StorageLocation* = enum
     ## Storage location types
@@ -49,7 +49,7 @@ type
     usedPercent*: float
 
   SdkStorageManager* = ref object
-    context: JObject
+    context: jobject
     apiLevel: int
     # Cached paths
     internalPath: Option[string]
@@ -123,9 +123,9 @@ proc getExternalFilesDir*(sm: SdkStorageManager, dirType: string = ""): string =
   ##   savePhoto(picturesDir / "photo.jpg")
 
   let typeArg = if dirType == "":
-    JObject(nil)
+    jobject(nil)
   else:
-    dirType.toJString.JObject
+    dirType.toJString.jobject
 
   let extFilesDir = sm.context.call("getExternalFilesDir", typeArg)
   if extFilesDir.isNil:

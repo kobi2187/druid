@@ -51,12 +51,12 @@ import std/json
 import std/streams
 
 # JNI bindings for network monitoring
-jnimport:
-  import android.content.Context
-  import android.net.ConnectivityManager as JCM
-  import android.net.NetworkInfo
-  import android.net.NetworkCapabilities
-
+# jnimport:
+#   import android.content.Context
+#   import android.net.ConnectivityManager as JCM
+#   import android.net.NetworkInfo
+#   import android.net.NetworkCapabilities
+# 
 type
   NetworkType* = enum
     ## Type of network connection
@@ -92,7 +92,7 @@ type
 
   SdkNetworkManager* = ref object
     ## Manager for network operations
-    connectivityManager: JObject
+    connectivityManager: jobject
     httpClient: nimhttp.HttpClient
     defaultTimeout: int  # milliseconds
     defaultUserAgent: string

@@ -93,7 +93,7 @@ type
 type
   FirebaseBackend* = ref object of AnalyticsBackend
     ## Firebase Analytics backend
-    firebaseAnalytics: JObject  ## com.google.firebase.analytics.FirebaseAnalytics
+    firebaseAnalytics: jobject  ## com.google.firebase.analytics.FirebaseAnalytics
 
   LoggingBackend* = ref object of AnalyticsBackend
     ## Logging backend for development (writes to console)
@@ -390,7 +390,7 @@ proc logEventToConsole(backend: LoggingBackend, event: AnalyticsEvent) =
 # Note: Firebase Analytics requires Firebase SDK integration
 # This is a stub showing the interface
 
-proc createFirebaseBackend*(context: JObject): FirebaseBackend =
+proc createFirebaseBackend*(context: jobject): FirebaseBackend =
   ## Create a Firebase Analytics backend
   ##
   ## Requires Firebase Analytics SDK to be included in the app.

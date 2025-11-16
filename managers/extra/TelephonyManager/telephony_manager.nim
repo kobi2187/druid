@@ -44,9 +44,9 @@ import times
 # Forward declarations
 type
   SdkTelephonyManager* = ref object
-    telephonyManager: JObject  ## android.telephony.TelephonyManager
-    smsManager: JObject  ## android.telephony.SmsManager
-    context: JObject  ## Android Context
+    telephonyManager: jobject  ## android.telephony.TelephonyManager
+    smsManager: jobject  ## android.telephony.SmsManager
+    context: jobject  ## Android Context
 
   SmsMessage* = object
     ## Represents an SMS message
@@ -105,7 +105,7 @@ type
     dsSuspended = 3  ## DATA_SUSPENDED
 
 # JNI class bindings
-jclass android.telephony.TelephonyManager of JObject:
+jclass android.telephony.TelephonyManager of jobject:
   proc getNetworkOperatorName(): JString
   proc getNetworkOperator(): JString
   proc getSimOperatorName(): JString
@@ -121,12 +121,12 @@ jclass android.telephony.TelephonyManager of JObject:
   proc getSubscriberId(): JString  # IMSI
   proc hasIccCard(): bool  # Has SIM card
 
-jclass android.telephony.SmsManager of JObject:
-  proc getDefault(): JObject {.static.}
+jclass android.telephony.SmsManager of jobject:
+  proc getDefault(): jobject {.static.}
   proc sendTextMessage(destinationAddress: JString, scAddress: JString,
-                      text: JString, sentIntent: JObject,
-                      deliveryIntent: JObject): void
-  proc divideMessage(text: JString): JObject  # ArrayList<String>
+                      text: JString, sentIntent: jobject,
+                      deliveryIntent: jobject): void
+  proc divideMessage(text: JString): jobject  # ArrayList<String>
 
 # Type aliases
 type
@@ -140,7 +140,7 @@ var globalTelephonyManager: SdkTelephonyManager = nil
 # Initialization
 #------------------
 
-proc initTelephonyManager*(context: JObject): SdkTelephonyManager =
+proc initTelephonyManager*(context: jobject): SdkTelephonyManager =
   ## Initialize the Telephony manager with an Android Context
   if globalTelephonyManager != nil:
     return globalTelephonyManager

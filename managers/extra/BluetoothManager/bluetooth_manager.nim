@@ -40,16 +40,16 @@ import sequtils
 # Forward declarations
 type
   SdkBluetoothManager* = ref object
-    bluetoothAdapter: JObject  ## android.bluetooth.BluetoothAdapter
+    bluetoothAdapter: jobject  ## android.bluetooth.BluetoothAdapter
     discoveredDevices: seq[BluetoothDevice]
     bleDevices: seq[BleDevice]
-    gattConnections: Table[string, JObject]  ## address -> BluetoothGatt
+    gattConnections: Table[string, jobject]  ## address -> BluetoothGatt
     isScanning: bool
     isBleScanning: bool
 
   BluetoothDevice* = object
     ## Represents a classic Bluetooth device
-    device: JObject  ## android.bluetooth.BluetoothDevice
+    device: jobject  ## android.bluetooth.BluetoothDevice
     name*: string
     address*: string  ## MAC address
     bondState*: BondState
@@ -57,7 +57,7 @@ type
 
   BleDevice* = object
     ## Represents a Bluetooth Low Energy device
-    device: JObject  ## android.bluetooth.BluetoothDevice
+    device: jobject  ## android.bluetooth.BluetoothDevice
     name*: string
     address*: string  ## MAC address
     rssi*: int  ## Signal strength
@@ -95,8 +95,8 @@ type
     gsFailure = 257  ## GATT_FAILURE
 
 # JNI class bindings
-jclass android.bluetooth.BluetoothAdapter of JObject:
-  proc getDefaultAdapter(): JObject {.static.}
+jclass android.bluetooth.BluetoothAdapter of jobject:
+  proc getDefaultAdapter(): jobject {.static.}
   proc isEnabled(): bool
   proc enable(): bool
   proc disable(): bool
@@ -107,23 +107,23 @@ jclass android.bluetooth.BluetoothAdapter of JObject:
   proc startDiscovery(): bool
   proc cancelDiscovery(): bool
   proc isDiscovering(): bool
-  proc getBondedDevices(): JObject  # Set<BluetoothDevice>
-  proc getRemoteDevice(address: JString): JObject  # BluetoothDevice
+  proc getBondedDevices(): jobject  # Set<BluetoothDevice>
+  proc getRemoteDevice(address: JString): jobject  # BluetoothDevice
 
-jclass android.bluetooth.BluetoothDevice of JObject:
+jclass android.bluetooth.BluetoothDevice of jobject:
   proc getName(): JString
   proc getAddress(): JString
   proc getBondState(): jint
-  proc getBluetoothClass(): JObject  # BluetoothClass
+  proc getBluetoothClass(): jobject  # BluetoothClass
   proc createBond(): bool
-  proc connectGatt(context: JObject, autoConnect: bool, callback: JObject): JObject  # BluetoothGatt
+  proc connectGatt(context: jobject, autoConnect: bool, callback: jobject): jobject  # BluetoothGatt
 
-jclass android.bluetooth.BluetoothClass of JObject:
+jclass android.bluetooth.BluetoothClass of jobject:
   proc getDeviceClass(): jint
 
-jclass android.bluetooth.le.BluetoothLeScanner of JObject:
-  proc startScan(callback: JObject): void
-  proc stopScan(callback: JObject): void
+jclass android.bluetooth.le.BluetoothLeScanner of jobject:
+  proc startScan(callback: jobject): void
+  proc stopScan(callback: jobject): void
 
 # Type aliases for JNI
 type
@@ -155,7 +155,7 @@ proc initBluetoothManager*(): SdkBluetoothManager =
     bluetoothAdapter: adapter,
     discoveredDevices: @[],
     bleDevices: @[],
-    gattConnections: initTable[string, JObject](),
+    gattConnections: initTable[string, jobject](),
     isScanning: false,
     isBleScanning: false
   )

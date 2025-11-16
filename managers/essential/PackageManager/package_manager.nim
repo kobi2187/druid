@@ -13,28 +13,30 @@ import jnim
 import options
 import strutils
 
-jnimport:
-  import android.content.Context
-  import android.content.pm.PackageManager as JPM
-  import android.content.pm.PackageInfo
-  import android.content.pm.ApplicationInfo
+# Define Android JNI classes using jclass
+jclass android.content.Context of JVMObject:
+  proc getPackageName*(): JVMObject
+  proc getPackageManager*(): JVMObject
 
-type
-  SdkPackageManager* = ref object
-    context: JObject
-    packageManager: JObject
-    # Cached values
-    packageName: Option[string]
-    versionCode: Option[int]
-    versionName: Option[string]
+jclass android.content.pm.PackageManager of JVMObject:
+  proc getPackageInfo*(packageName: JVMObject, flags: jint): JVMObject
+  proc hasSystemFeature*(feature: JVMObject): jboolean
+
+jclass android.content.pm.PackageInfo of JVMObject:
+  proc versionCode*: jint {.prop, final.}
+  proc versionName*: JVMObject {.prop, final.}
+
+# Type is defined in core.nim as SdkPackageManager
+# We just add methods here
 
 proc init*(_: typedesc[SdkPackageManager]): SdkPackageManager =
   ## Initialize SdkPackageManager with Application context
   result = SdkPackageManager()
-  result.context = getContext()
+  let ctx = cast[Context](getContext())
+  result.context = cast[pointer](ctx)
 
   # Get PackageManager from Context
-  result.packageManager = result.context.getPackageManager()
+  result.packageManager = cast[pointer](ctx.getPackageManager())
 
 proc getPackageName*(pm: SdkPackageManager): string =
   ## Get the app's package name
@@ -45,7 +47,8 @@ proc getPackageName*(pm: SdkPackageManager): string =
   if pm.packageName.isSome:
     return pm.packageName.get()
 
-  let name = pm.context.getPackageName().toStringRaw()
+  let ctx = cast[Context](pm.context)
+  let name = ctx.getPackageName().toStringRaw()
   pm.packageName = some(name)
   return name
 
@@ -59,7 +62,8 @@ proc getVersionCode*(pm: SdkPackageManager): int =
     return pm.versionCode.get()
 
   let packageName = pm.getPackageName()
-  let packageInfo = pm.packageManager.getPackageInfo(packageName.toJString, 0)
+  let pkgMgr = cast[PackageManager](pm.packageManager)
+  let packageInfo = cast[PackageInfo](pkgMgr.getPackageInfo(newJVMObject(packageName), 0))
 
   # Use versionCode (deprecated in API 28, but works for all versions)
   let code = packageInfo.versionCode.int
@@ -76,7 +80,8 @@ proc getVersionName*(pm: SdkPackageManager): string =
     return pm.versionName.get()
 
   let packageName = pm.getPackageName()
-  let packageInfo = pm.packageManager.getPackageInfo(packageName.toJString, 0)
+  let pkgMgr = cast[PackageManager](pm.packageManager)
+  let packageInfo = cast[PackageInfo](pkgMgr.getPackageInfo(newJVMObject(packageName), 0))
 
   let name = packageInfo.versionName.toStringRaw()
   pm.versionName = some(name)
@@ -96,7 +101,8 @@ proc hasSystemFeature*(pm: SdkPackageManager, feature: string): bool =
   ## Returns:
   ##   true if feature is available, false otherwise
 
-  return pm.packageManager.hasSystemFeature(feature.toJString).bool
+  let pkgMgr = cast[PackageManager](pm.packageManager)
+  return pkgMgr.hasSystemFeature(newJVMObject(feature)).bool
 
 # Lazy accessor for AndroidRuntime
 proc sdkPackageManager*(runtime: AndroidRuntime): SdkPackageManager =

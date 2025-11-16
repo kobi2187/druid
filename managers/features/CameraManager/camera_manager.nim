@@ -37,12 +37,12 @@ import ../../../core
 import ../../../common
 
 # JNI bindings for Camera2 API
-jnimport:
-  import android.content.Context
-  import android.hardware.camera2.CameraManager as JCM
-  import android.hardware.camera2.CameraCharacteristics
-  import android.Manifest
-
+# jnimport:
+#   import android.content.Context
+#   import android.hardware.camera2.CameraManager as JCM
+#   import android.hardware.camera2.CameraCharacteristics
+#   import android.Manifest
+# 
 type
   CameraFacing* = enum
     ## Camera facing direction
@@ -80,7 +80,7 @@ type
 
   SdkCameraManager* = ref object
     ## Manager for camera access
-    cameraManager: JObject
+    cameraManager: jobject
     cameraIds: seq[string]
     cameraInfos: Table[string, CameraInfo]
 
@@ -303,7 +303,7 @@ proc stopVideoRecording*(cm: SdkCameraManager) =
 #   SimpleCameraPreview* = ref object
 #     ## Simple camera preview widget
 #     cameraId: string
-#     surfaceView: JObject
+#     surfaceView: jobject
 #
 #   proc showPreview*(cm: SdkCameraManager, cameraId: string): SimpleCameraPreview =
 #     ## Show live camera preview

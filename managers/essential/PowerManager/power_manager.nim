@@ -16,14 +16,14 @@ import jnim
 import options
 import tables
 
-jnimport:
-  import android.content.Context
-  import android.content.IntentFilter
-  import android.content.Intent
-  import android.os.PowerManager as JPM
-  import android.os.BatteryManager as JBM
-  import android.os.Build
-
+# jnimport:
+#   import android.content.Context
+#   import android.content.IntentFilter
+#   import android.content.Intent
+#   import android.os.PowerManager as JPM
+#   import android.os.BatteryManager as JBM
+#   import android.os.Build
+# 
 type
   WakeLockLevel* = enum
     ## Wake lock levels - what components to keep awake
@@ -77,15 +77,15 @@ type
 
   WakeLock* = ref object
     ## Wake lock handle
-    javaWakeLock: JObject
+    javaWakeLock: jobject
     id: string
     level: WakeLockLevel
     active: bool
 
   SdkPowerManager* = ref object
-    context: JObject
-    powerManager: JObject
-    batteryManager: JObject
+    context: jobject
+    powerManager: jobject
+    batteryManager: jobject
     apiLevel: int
     activeLocks: Table[string, WakeLock]
 
@@ -122,7 +122,7 @@ proc getBatteryInfo*(pm: SdkPowerManager): BatteryInfo =
   # Get battery status via Intent (works on all API levels)
   let intentFilter = IntentFilter.new("android.intent.action.BATTERY_CHANGED".toJString)
   let batteryStatus = pm.context.call("registerReceiver",
-    JObject(nil),  # null receiver - just get current state
+    jobject(nil),  # null receiver - just get current state
     intentFilter
   )
 
@@ -372,7 +372,7 @@ proc reboot*(pm: SdkPowerManager) =
   ##   # Only works for system apps
   ##   power().reboot()
 
-  pm.powerManager.call("reboot", JObject(nil))
+  pm.powerManager.call("reboot", jobject(nil))
 
 # Lazy accessor for AndroidRuntime
 proc sdkPowerManager*(runtime: AndroidRuntime): SdkPowerManager =

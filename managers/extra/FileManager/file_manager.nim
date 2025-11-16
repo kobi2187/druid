@@ -40,11 +40,11 @@ import ../../../core
 import ../../../common
 
 # JNI bindings for storage
-jnimport:
-  import android.content.Context
-  import android.os.Environment
-  import android.os.StatFs
-
+# jnimport:
+#   import android.content.Context
+#   import android.os.Environment
+#   import android.os.StatFs
+# 
 type
   StorageType* = enum
     ## Storage location types
@@ -69,7 +69,7 @@ type
 
   SdkFileManager* = ref object
     ## Manager for file operations
-    context: JObject
+    context: jobject
     internalStorageDir: string
     externalStorageDir: string
     cacheDir: string

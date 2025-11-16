@@ -12,16 +12,16 @@ import ../../../core
 import jnim
 import options
 
-jnimport:
-  import android.content.Context
-  import android.content.ClipboardManager as JCM
-  import android.content.ClipData
-  import android.content.ClipDescription
-
+# jnimport:
+#   import android.content.Context
+#   import android.content.ClipboardManager as JCM
+#   import android.content.ClipData
+#   import android.content.ClipDescription
+# 
 type
   SdkClipboardManager* = ref object
-    context: JObject
-    clipboardManager: JObject
+    context: jobject
+    clipboardManager: jobject
 
 proc init*(_: typedesc[SdkClipboardManager]): SdkClipboardManager =
   ## Initialize SdkClipboardManager
