@@ -136,6 +136,16 @@ public class NimHarnessTest {
         assertEquals("ok", cmd("clip.set", "after"));
     }
 
+    @Test public void nativeThreadsAreAttachedAndDetachedOnExit() throws Exception {
+        int before = Thread.getAllStackTraces().size();
+        assertEquals("36", cmd("thread.call"));
+        // The Nim thread was attached to call Java; once it exited, its
+        // pthread-key destructor detached it, so the JVM no longer lists it.
+        for (int k = 0; k < 50 && Thread.getAllStackTraces().size() > before; k++) Thread.sleep(10);
+        assertEquals(before, Thread.getAllStackTraces().size());
+        assertEquals("36", cmd("thread.call"));   // and again: a fresh attach works
+    }
+
     @Test public void eventsWakeTheNimLoop() {
         assertEquals("ok", cmd("wake.install"));
         int before = Integer.parseInt(cmd("wake.count"));

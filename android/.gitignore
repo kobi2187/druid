@@ -3,3 +3,6 @@ build/
 local.properties
 # Built by ../tools/build_ndk.sh from the Nim sources:
 sample/src/main/jniLibs/
+# Built by ../tools/build_rui_android.sh:
+rui-demo/src/main/jniLibs/
+rui-demo/src/main/assets/

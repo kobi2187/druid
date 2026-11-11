@@ -21,7 +21,9 @@ public class DruidPermissionActivity extends Activity {
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
-        Druid.init(this);
+        // Plumbing, not the app's Activity: do not become Druid's current one
+        // (the Activity underneath stays it), only make sure Druid is started.
+        if (!Druid.isInitialized()) Druid.init(getApplicationContext());
         String[] p = getIntent().getStringArrayExtra(EXTRA_PERMISSIONS);
         permissions = p == null ? new String[0] : p;
         requestId = getIntent().getIntExtra(EXTRA_REQUEST_ID, 0);

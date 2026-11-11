@@ -10,4 +10,8 @@ mkdir -p "$ROOT/build/host"
 nim c --hints:off --app:lib -d:noSignalHandler --debugger:native \
   --nimcache:"$ROOT/build/nimcache/host_harness" \
   -o:"$ROOT/build/host/libdruid_harness.so" "$ROOT/tests/robolectric/harness.nim"
-echo "built $ROOT/build/host/libdruid_harness.so"
+# The sample's native library too, for android/sample's Robolectric test.
+nim c --hints:off --app:lib -d:noSignalHandler --debugger:native --path:"$ROOT/src" \
+  --nimcache:"$ROOT/build/nimcache/host_sample" \
+  -o:"$ROOT/build/host/libdruidsample.so" "$ROOT/examples/sample/sample.nim"
+echo "built $ROOT/build/host/libdruid_harness.so and libdruidsample.so"

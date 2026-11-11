@@ -57,7 +57,9 @@ public final class Druid {
             lastLifecycle = "";
         }
         app = newApp;
-        if (ctx instanceof Activity) current = new WeakReference<>((Activity) ctx);
+        if (ctx instanceof Activity && !(ctx instanceof DruidPermissionActivity)) {
+            current = new WeakReference<>((Activity) ctx);
+        }
         if (app instanceof Application && registeredOn != app) {
             Application a = (Application) app;
             a.registerActivityLifecycleCallbacks(new Lifecycle());
@@ -159,14 +161,18 @@ public final class Druid {
 
     // ---- callbacks that become events ----
 
+    /** The app's Activities, not Druid's own DruidPermissionActivity (plumbing the app never sees). */
     private static final class Lifecycle implements Application.ActivityLifecycleCallbacks {
+        private static boolean ours(Activity a) { return a instanceof DruidPermissionActivity; }
         private void note(Activity a, String what) {
+            if (ours(a)) return;
             lastLifecycle = what;
             post("lifecycle", what, a.getClass().getName());
         }
-        @Override public void onActivityCreated(Activity a, Bundle b) { current = new WeakReference<>(a); note(a, "created"); }
+        private void makeCurrent(Activity a) { if (!ours(a)) current = new WeakReference<>(a); }
+        @Override public void onActivityCreated(Activity a, Bundle b) { makeCurrent(a); note(a, "created"); }
         @Override public void onActivityStarted(Activity a) { note(a, "started"); }
-        @Override public void onActivityResumed(Activity a) { current = new WeakReference<>(a); note(a, "resumed"); }
+        @Override public void onActivityResumed(Activity a) { makeCurrent(a); note(a, "resumed"); }
         @Override public void onActivityPaused(Activity a) { note(a, "paused"); }
         @Override public void onActivityStopped(Activity a) { note(a, "stopped"); }
         @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}

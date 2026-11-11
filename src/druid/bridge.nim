@@ -184,6 +184,32 @@ var
   gWake: WakeHook
 initLock(gLock)
 
+# A thread Druid attached must detach before it exits, or ART aborts the app
+# ("thread exited while attached"). A pthread key's destructor does it for
+# threads Druid attached itself -- RUI's, which never returns to Java.
+when not defined(windows):
+  import std/posix
+  var gDetachKey: Pthread_key
+  var gDetachKeyMade: bool
+
+  proc detachOnExit(vm: pointer) {.noconv.} =
+    let v = cast[JavaVMPtr](vm)
+    if v != nil: discard v.DetachCurrentThread(v)
+
+  proc detachWhenThreadExits(vm: JavaVMPtr) =
+    {.cast(gcsafe).}:
+      withLock gLock:
+        if not gDetachKeyMade:
+          gDetachKeyMade = pthread_key_create(addr gDetachKey, detachOnExit) == 0
+      if gDetachKeyMade: discard pthread_setspecific(gDetachKey, cast[pointer](vm))
+
+  proc forgetDetach() =
+    {.cast(gcsafe).}:
+      if gDetachKeyMade: discard pthread_setspecific(gDetachKey, nil)
+else:
+  proc detachWhenThreadExits(vm: JavaVMPtr) = discard
+  proc forgetDetach() = discard
+
 proc druidStarted*(): bool =
   ## Whether a JVM is attached (`startDruid` succeeded and `stopDruid` was not called).
   {.cast(gcsafe).}: gVm != nil
@@ -203,15 +229,17 @@ proc currentEnv*(): JNIEnvPtr =
   var rc = vm.GetEnv(vm, addr p, JNI_VERSION_1_6)
   if rc == JNI_EDETACHED:
     rc = vm.AttachCurrentThread(vm, addr p, nil)
+    if rc == JNI_OK: detachWhenThreadExits(vm)
   if rc != JNI_OK or p == nil:
     raise newException(DruidError, "cannot attach this thread to the JVM (" & $rc & ")")
   cast[JNIEnvPtr](p)
 
 proc detachThread*() =
-  ## Detach the calling thread from the JVM. Call it before a thread that used
-  ## Druid exits (not on the thread the app runs on).
+  ## Detach the calling thread from the JVM now. Threads Druid attached are
+  ## detached when they exit anyway; never call it on a thread Java started.
   {.cast(gcsafe).}:
     let vm = gVm
+  forgetDetach()
   if vm != nil: discard vm.DetachCurrentThread(vm)
 
 # ---- strings and arrays ----
@@ -494,7 +522,9 @@ proc startDruid*(vm: JavaVMPtr, context: jobject) =
   if vm == nil: raise newException(DruidError, "startDruid: nil JavaVM")
   var p: pointer
   var rc = vm.GetEnv(vm, addr p, JNI_VERSION_1_6)
-  if rc == JNI_EDETACHED: rc = vm.AttachCurrentThread(vm, addr p, nil)
+  if rc == JNI_EDETACHED:
+    rc = vm.AttachCurrentThread(vm, addr p, nil)
+    if rc == JNI_OK: detachWhenThreadExits(vm)
   if rc != JNI_OK: raise newException(DruidError, "startDruid: cannot attach thread (" & $rc & ")")
   startDruid(cast[JNIEnvPtr](p), context)
 

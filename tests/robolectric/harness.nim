@@ -9,7 +9,7 @@
 ## A command is "name|arg|arg...". The answer is the result's fields joined by
 ## '|', or "ERR <exception type>: <message>".
 
-import std/[strutils, options, tables, sequtils]
+import std/[strutils, options, tables, sequtils, typedthreads]
 import ../../src/druid
 
 type Cmd = proc(a: seq[string]): string
@@ -281,6 +281,17 @@ cmd "wake.install":
   setWakeHook(countWake)
   "ok"
 cmd "wake.count": $wakeCount
+
+# ---- threads ----
+var threadAnswer: int
+proc worker() {.thread.} =
+  # A thread Java never saw: Druid attaches it, and detaches it when it exits.
+  {.cast(gcsafe).}: threadAnswer = device().apiLevel
+cmd "thread.call":
+  var t: Thread[void]
+  createThread(t, worker)
+  joinThread(t)
+  $threadAnswer
 
 # ---- errors ----
 cmd "err.java":
