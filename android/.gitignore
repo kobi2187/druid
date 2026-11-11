@@ -1,0 +1,5 @@
+.gradle/
+build/
+local.properties
+# Built by ../tools/build_ndk.sh from the Nim sources:
+sample/src/main/jniLibs/
