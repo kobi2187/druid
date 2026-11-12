@@ -19,9 +19,9 @@ for ev in pollEvents():
     location().start(providerGps)
 ```
 
-The same program also builds for the desktop. There, every call gives a
-neutral answer: no vibrator, all permissions granted, toasts and notifications
-go to stderr, and prefs are saved to a JSON file.
+The same program also runs on the desktop, against a **simulated phone**
+that keeps Android's rules, so what works on the desktop works on the device.
+See [Developing on the desktop](#developing-on-the-desktop).
 
 ## What it covers
 
@@ -47,6 +47,57 @@ go to stderr, and prefs are saved to a JSON file.
 | hardware | `telephony()`, `bluetooth()`, `nfc()`, `camera()` | presence/state, camera facts, torch |
 | media | `player()`, `biometric()`, `downloads()`, `memory()` | audio playback, BiometricPrompt, DownloadManager, memory info |
 | log, ndk | `logInfo` ..., `systemProperty`, `ndkApiLevel` | logcat; NDK-only facts |
+
+## Developing on the desktop
+
+Without a JVM (a desktop build), every Druid call goes to a simulated
+Android device (`src/druid/simulator.nim`), not to stand-ins.
+
+**It follows Android's rules:**
+- Dangerous permissions start un-granted. A request returns at once and is
+  answered at the next `pollEvents`, after the "dialog". After one denial
+  `shouldShowRationale` is true; after two the request is refused without
+  asking. A permission newer than the device's API level is denied. Normal
+  permissions are always granted.
+- Location without a location permission raises `DruidPermissionError`, as
+  Android's `SecurityException` does.
+- On API 33+, notifications are dropped without `POST_NOTIFICATIONS`.
+- Network, sensor, location and lifecycle changes are events only while the
+  app monitors them.
+
+**You choose the device:** `DRUID_DEVICE` is `phone` (Pixel 7, API 34,
+1080×2400 at 420 dpi; the default), `small` (API 28, 720×1280) or `tablet`.
+The profile sets the API level, the screen, the features, sensors and cameras,
+the vibrator and biometrics.
+
+**You drive the world,** from debug code or tests:
+
+```nim
+simulator().setNetwork("cellular", metered = true)
+simulator().setLocation(48.8584, 2.2945)
+simulator().setSensor(ord(stLight), [320'f32])
+simulator().setBattery(15, charging = true, plugged = "usb")
+simulator().lifecycle("paused")
+simulator().setPermissionPolicy(ppDeny)
+```
+
+and see what the app did with `simulator().notificationsShown`, `.vibrations`,
+`.toasts` and `.opened` (links, shares, dial).
+
+**With RUI:**
+- `newDruidApp(title)` opens a window the phone's size in dp.
+- `RUI_SCALE=2.625` shows it at the phone's sharpness.
+- A permission request pops up a dialog in the app, for you to answer like the
+  phone's. `DRUID_PERMISSIONS=grant` or `deny` answers without asking.
+
+**Real work, same results:** digests and HMACs give the same bytes as
+Android's providers, downloads really download, and prefs persist.
+
+**It is checked against Android:** `tests/conformance.nim` holds 14 scenarios:
+permission allow/deny/already granted, notifications, clipboard, prefs,
+crypto, connectivity, sensors, location, battery, wake locks, argument
+rules and storage. The suite runs on the simulator and, through JNI, on
+Robolectric's Android, and both must pass.
 
 ## How it works
 
@@ -171,18 +222,11 @@ your app's manifest. Druid's library declares only the normal ones it uses
 `tools/test_all.sh` runs every stage. CI (`.github/workflows/ci.yml`) runs the
 same stages, one job each.
 
-| Stage | What runs | Count |
-|---|---|---|
-| `host` | `tests/test_host.nim`: event decoding, UTF-8/16 edge cases, signature derivation, every service's desktop answer | 18 tests |
-| `android` | **Robolectric**: the Nim harness (`tests/robolectric/harness.nim`) is built for the host and loaded into Robolectric's JVM. Each test arranges Android with shadows, runs Nim code that calls the Nim API through real JNI, and checks Nim's answer and the effect on Android. Java-only bridge tests run alongside. **SDK**: built against platform 36 with AGP 9.1. **NDK**: `examples/sample` is cross-compiled for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and has 16 KB-aligned segments. The sample APK is packaged, and its Robolectric tests run the same Nim. | 36 Nim-through-JNI + 13 bridge + 3 sample |
-| `rui` | `tests/test_rui.nim`: the demo screen driven through RUI's own UI harness, with permission answers reaching the screen via `attachDruid`. The demo is laid out headless, then built with the NDK into `libmain.so` together with RUI and raylib, and packaged with RUI's `rui` library into `android/rui-demo`, whose Robolectric tests check the RuiActivity / Druid seam. | 4 + 3 |
-
-Requirements:
-
-- all stages: Nim 2.x and `jnim`;
-- `android`: a JDK and `ANDROID_HOME` with platform 36 and an NDK;
-- `rui`: an RUI checkout (`RUI_DIR`, default `../rui2`) with `naylib` 25.x and
-  `yaml`.
+| Stage | What runs |
+|---|---|
+| `host` | The Nim API without a JVM: `test_host.nim` (event decoding, UTF-8/16, JNI signatures), `test_simulation.nim` (the simulated device follows Android's rules), `test_conformance.nim` (the 14 shared scenarios on the simulator), and `tools/check_api_coverage.py`, which fails if any exported API proc is not called by a test. |
+| `android` | **Robolectric**, with three kinds of test. First, a test class per Java service, each run on Android 7.0, 9, 11, 13 and 16 (API 24/28/30/33/36: 504 runs, 98% line coverage, report under `android/druid/build/reports/coverage/`). Second, the Nim harness built for the host and run through JNI against Robolectric's Android, including the 14 conformance scenarios (arranged with shadows by `Arranger.java`). Third, the sample app's tests. **SDK** 36, AGP 9.1. **NDK** r28c: the sample is built for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and is 16 KB-aligned. |
+| `rui` | `test_rui.nim` drives the demo through RUI's UI harness: buttons, the permission flow, and the desktop permission dialog. The demo is laid out headless, built into `libmain.so` with RUI, and packaged in `android/rui-demo` (Robolectric tests of the RuiActivity/Druid seam). A new app is generated from the template and built and tested. |
 
 ### On a device or emulator
 
