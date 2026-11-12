@@ -1,0 +1,170 @@
+diff --git a/mobile/android/build_rui.sh b/mobile/android/build_rui.sh
+index 2b363ad..8961d6b 100755
+--- a/mobile/android/build_rui.sh
++++ b/mobile/android/build_rui.sh
+@@ -23,6 +23,20 @@ for pkg in naylib yaml db_connector; do
+   p="$(nimble path "$pkg" 2>/dev/null | tail -1)"; [ -n "$p" ] && DEP="$DEP --path:$p"
+ done
+ JNI="$ROOT/mobile/android/rui/src/main/jniLibs"
++# rui_widgets' data sources import db_connector/db_sqlite, whose functions Nim
++# loads from libsqlite3.so when the program starts. Android gives apps no such
++# library (SQLite is not a public NDK library), so every RUI program would
++# print "could not load: libsqlite3.so" and exit before its first line. Link
++# SQLite in instead: the amalgamation, built by the NDK, and --dynlibOverride.
++SQLITE_VERSION=3500400; SQLITE_YEAR=2025
++SQLITE_HOME="${RUI_MOBILE_HOME:-$HOME/rui-mobile-tools}/sqlite"
++SQLITE_DIR="$SQLITE_HOME/sqlite-amalgamation-$SQLITE_VERSION"
++if [ ! -f "$SQLITE_DIR/sqlite3.c" ]; then
++  mkdir -p "$SQLITE_HOME"
++  curl -fsSL --retry 4 -o "$SQLITE_HOME/sqlite.zip" \
++    "https://www.sqlite.org/$SQLITE_YEAR/sqlite-amalgamation-$SQLITE_VERSION.zip"
++  (cd "$SQLITE_HOME" && unzip -qo sqlite.zip)
++fi
+ for abi in "${ABIS[@]}"; do
+   case "$abi" in
+     arm64-v8a)   cpu=arm64; triple=aarch64-linux-android ;;
+@@ -30,15 +44,23 @@ for abi in "${ABIS[@]}"; do
+     x86_64)      cpu=amd64; triple=x86_64-linux-android ;;
+     *) echo "unknown ABI $abi"; exit 2 ;;
+   esac
+-  mkdir -p "$JNI/$abi"
++  mkdir -p "$JNI/$abi" "$SQLITE_HOME/$abi"
+   CC="$TC/$triple$API-clang"
++  SQLITE_O="$SQLITE_HOME/$abi/sqlite3-$SQLITE_VERSION-meta.o"
++  [ -f "$SQLITE_O" ] || "$CC" -c -O2 -fPIC -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION \
++    -DSQLITE_ENABLE_COLUMN_METADATA -o "$SQLITE_O" "$SQLITE_DIR/sqlite3.c"
+   ( cd "$ROOT" && nim c --hints:off --warnings:off -d:release \
+       --os:android --cpu:$cpu --app:lib --noMain -d:useGraphics \
+       -d:AndroidNdk="$ANDROID_NDK_HOME" \
+       --cc:clang --clang.exe:"$CC" --clang.linkerexe:"$CC" \
+       --passL:"-Wl,-z,max-page-size=16384" \
++      --dynlibOverride:sqlite3 --passL:"$SQLITE_O" \
+       $DEP --nimcache:"/tmp/rui_android_nc_$abi" \
+       -o:"$JNI/$abi/libmain.so" "$MAIN" )
++  # Nothing may be left to dlopen at start-up but Android's public libraries.
++  if strings "$JNI/$abi/libmain.so" | grep -q 'libsqlite3.so'; then
++    echo "  $abi: libmain.so still loads libsqlite3.so at run time"; exit 1
++  fi
+   echo "  $abi: $JNI/$abi/libmain.so ($(du -h "$JNI/$abi/libmain.so" | cut -f1))"
+ done
+ # The stb engine looks for fonts in the APK's assets/fonts first.
+diff --git a/packages/rui/src/android_host.nim b/packages/rui/src/android_host.nim
+index 989086b..2d4205e 100644
+--- a/packages/rui/src/android_host.nim
++++ b/packages/rui/src/android_host.nim
+@@ -18,6 +18,12 @@
+ 
+ when defined(android):
+   {.compile: "android_glue.c".}
++  # stdout and stderr into logcat from the moment libmain.so loads: Android
++  # discards both, so a program that fails while starting (an exception in a
++  # module initializer, a {.dynlib.} library that cannot be loaded) otherwise
++  # ends with "exited cleanly (1)" and no message. -d:ruiKeepStdio: leave them.
++  when defined(ruiKeepStdio): {.passC: "-DRUI_KEEP_STDIO".}
++  {.compile: "android_stdio.c".}
+   proc ruiIntentExtra(key: cstring, buf: cstring, bufLen: cint): cint {.importc: "rui_intent_extra".}
+   proc ruiDisplayDpi(): cint {.importc: "rui_display_dpi".}
+   proc ruiNightMode(): cint {.importc: "rui_night_mode".}
+diff --git a/packages/rui/src/android_stdio.c b/packages/rui/src/android_stdio.c
+new file mode 100644
+index 0000000..7ede156
+--- /dev/null
++++ b/packages/rui/src/android_stdio.c
+@@ -0,0 +1,97 @@
++/* stdout and stderr into logcat. Android discards both, so without this a
++ * Nim program's `echo`, its unhandled-exception trace and anything a library
++ * prints vanish. A pipe per stream and a thread that writes each line to
++ * logcat, under the tags "stdout" and "stderr". */
++#include <android/log.h>
++#include <fcntl.h>
++#include <pthread.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++
++struct rui_stream {
++  int fd; const char *tag; int prio;
++  pthread_mutex_t lock;            /* the reader thread and the atexit flush */
++  char line[1024]; size_t used;
++};
++
++static void rui_feed(struct rui_stream *s, const char *buf, ssize_t n) {
++  for (ssize_t i = 0; i < n; i++) {
++    if (buf[i] == '\n' || s->used == sizeof s->line - 1) {
++      s->line[s->used] = 0;
++      __android_log_write(s->prio, s->tag, s->line);
++      s->used = 0;
++      if (buf[i] == '\n') continue;
++    }
++    s->line[s->used++] = buf[i];
++  }
++}
++
++static void *rui_pump(void *arg) {
++  struct rui_stream *s = (struct rui_stream *)arg;
++  char buf[1024];
++  ssize_t n;
++  while ((n = read(s->fd, buf, sizeof buf)) > 0) {
++    pthread_mutex_lock(&s->lock);
++    rui_feed(s, buf, n);
++    pthread_mutex_unlock(&s->lock);
++  }
++  return NULL;
++}
++
++/* exit() ends the reader threads before they read the last lines -- and the
++ * last lines are the ones that say why (raylib's fatal TraceLog exits with 1,
++ * Nim's unhandled exception too). Read what is left, here, before the end. */
++static struct rui_stream rui_out, rui_err;
++static void rui_drain(struct rui_stream *s) {
++  char buf[1024];
++  ssize_t n;
++  if (s->fd <= 0) return;
++  pthread_mutex_lock(&s->lock);
++  fcntl(s->fd, F_SETFL, fcntl(s->fd, F_GETFL) | O_NONBLOCK);
++  while ((n = read(s->fd, buf, sizeof buf)) > 0) rui_feed(s, buf, n);
++  if (s->used > 0) rui_feed(s, "\n", 1);
++  pthread_mutex_unlock(&s->lock);
++}
++static void rui_flush_at_exit(void) {
++  fflush(stdout);
++  fflush(stderr);
++  rui_drain(&rui_out);
++  rui_drain(&rui_err);
++}
++
++static int rui_redirect(int target, const char *tag, int prio, struct rui_stream *s) {
++  int p[2];
++  pthread_t t;
++  if (pipe(p) != 0) return 0;
++  if (dup2(p[1], target) < 0) { close(p[0]); close(p[1]); return 0; }
++  close(p[1]);
++  s->fd = p[0]; s->tag = tag; s->prio = prio; s->used = 0;
++  pthread_mutex_init(&s->lock, NULL);
++  if (pthread_create(&t, NULL, rui_pump, s) != 0) return 0;
++  pthread_detach(t);
++  return 1;
++}
++
++/* Idempotent; returns 1 when both streams go to logcat. */
++int rui_stdio_to_logcat(void) {
++  static int done = 0;
++  if (done) return done;
++  /* Another library in this process (Druid) may have done it already. */
++  if (getenv("NIM_STDIO_LOGCAT")) return done = 1;
++  setvbuf(stdout, NULL, _IOLBF, 0);
++  setvbuf(stderr, NULL, _IONBF, 0);
++  done = rui_redirect(1, "stdout", ANDROID_LOG_INFO, &rui_out) &
++         rui_redirect(2, "stderr", ANDROID_LOG_WARN, &rui_err);
++  atexit(rui_flush_at_exit);
++  if (done) setenv("NIM_STDIO_LOGCAT", "1", 1);
++  return done;
++}
++
++/* At load time, before any Nim module initializes: an exception raised by a
++ * module's initializer is written to stderr and ends the process, and that
++ * message must reach logcat too. -d:ruiKeepStdio defines RUI_KEEP_STDIO. */
++#ifndef RUI_KEEP_STDIO
++__attribute__((constructor)) static void rui_stdio_at_load(void) { rui_stdio_to_logcat(); }
++#endif

@@ -1,5 +1,10 @@
 ## Logging that shows up where Android developers look: logcat (`adb logcat
-## -s druid`). On the desktop, stderr. `echo` on Android goes nowhere.
+## -s druid`). On the desktop, stderr.
+##
+## On Android, importing Druid also sends stdout and stderr to logcat (tags
+## "stdout" and "stderr"), so `echo`, an unhandled exception's trace and what
+## libraries print are not lost; Android discards both streams otherwise.
+## `-d:druidKeepStdio` leaves them alone.
 ##
 ## ```nim
 ## logInfo "loaded ", items.len, " items"
@@ -15,6 +20,24 @@ var minLevel* = llDebug  ## Lines below this level are dropped.
 when defined(android):
   {.passL: "-llog".}
   proc androidLogWrite(prio: cint, tag, text: cstring): cint {.importc: "__android_log_write", header: "<android/log.h>".}
+
+when defined(android):
+  {.compile: "log_android.c".}
+  proc druidStdioToLogcat(): cint {.importc: "druid_stdio_to_logcat".}
+
+  proc stdioToLogcat*(): bool {.discardable.} =
+    ## Send stdout and stderr to logcat from now on. Done when the library
+    ## loads unless -d:druidKeepStdio; idempotent.
+    druidStdioToLogcat() != 0
+
+  proc nimErrorToLogcat(msg: string) {.nimcall, gcsafe, raises: [].} =
+    # Nim's own fatal messages (an unhandled exception's trace) go here.
+    discard androidLogWrite(6, "nim", msg.cstring)
+
+  errorMessageWriter = nimErrorToLogcat
+  when defined(druidKeepStdio):
+    {.passC: "-DDRUID_KEEP_STDIO".}
+  # (log_android.c starts the redirect itself, when the library loads.)
 
 proc log*(level: LogLevel, msg: string) =
   if level < minLevel: return

@@ -30,6 +30,14 @@ fail() { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
 adb wait-for-device
 until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 5; done
 echo "device: $(adb shell getprop ro.product.model | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r'), $(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+# Slow (software) emulators: system ANR dialogs would cover the apps, adb
+# install verification times out, and the emulated Bluetooth stack
+# crash-loops; none of it is under test.
+adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1
+adb shell settings put global verifier_verify_adb_installs 0 >/dev/null 2>&1
+if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ] || adb shell getprop ro.product.model | grep -qi "sdk\|emulator"; then
+  adb shell pm disable-user --user 0 com.android.bluetooth >/dev/null 2>&1
+fi
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1
 adb shell settings put global transition_animation_scale 0 >/dev/null 2>&1
 adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1
@@ -60,10 +68,21 @@ allow_dialog() {  # answer the system permission dialog with "Allow"/"While usin
   return 1
 }
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
+install() {  # right after boot the package manager can still refuse: retry
+  local k
+  for k in 1 2 3 4 5; do
+    adb install -r -t "$1" 2>&1 | grep -q '^Success' && return 0
+    sleep 20
+  done
+  return 1
+}
+
+# Let the system finish settling after boot before installing.
+until adb shell cmd package list packages >/dev/null 2>&1; do sleep 5; done
 
 # ---- 1. instrumented tests ----
 echo "== instrumented tests (Nim harness on ART)"
-adb install -r -t "$A/druid/build/outputs/apk/androidTest/debug/druid-debug-androidTest.apk" >/dev/null || fail "install test apk"
+install "$A/druid/build/outputs/apk/androidTest/debug/druid-debug-androidTest.apk" || fail "install test apk"
 adb shell am instrument -w -r dev.druid.test/androidx.test.runner.AndroidJUnitRunner > "$OUT/instrument.txt" 2>&1
 ok="$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0' "$OUT/instrument.txt")"
 bad="$(grep -c '^INSTRUMENTATION_STATUS_CODE: -2' "$OUT/instrument.txt")"
@@ -72,7 +91,7 @@ else fail "instrumented: $ok passed, $bad failed (build/device/instrument.txt)";
 
 # ---- 2. sample app ----
 echo "== sample app (Java Activity calling Nim)"
-adb install -r "$A/sample/build/outputs/apk/debug/sample-debug.apk" >/dev/null || fail "install sample"
+install "$A/sample/build/outputs/apk/debug/sample-debug.apk" || fail "install sample"
 adb shell pm revoke dev.druid.sample android.permission.CAMERA >/dev/null 2>&1
 adb logcat -c
 adb shell am start -W -n dev.druid.sample/.MainActivity >/dev/null
@@ -92,7 +111,7 @@ grep -q "sample started on API" "$OUT/sample_logcat.txt" && pass "sample: logInf
 # ---- 3. RUI demo ----
 if [ -f "$A/rui-demo/build/outputs/apk/debug/rui-demo-debug.apk" ]; then
   echo "== RUI demo (RuiActivity: RUI + Druid in libmain.so)"
-  adb install -r "$A/rui-demo/build/outputs/apk/debug/rui-demo-debug.apk" >/dev/null || fail "install rui-demo"
+  install "$A/rui-demo/build/outputs/apk/debug/rui-demo-debug.apk" || fail "install rui-demo"
   adb shell pm revoke dev.druid.ruidemo android.permission.CAMERA >/dev/null 2>&1
   adb logcat -c
   adb shell am start -W -n dev.druid.ruidemo/.Launcher >/dev/null

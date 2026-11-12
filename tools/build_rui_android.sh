@@ -20,6 +20,19 @@ OUT="${DRUID_RUI_OUT:-$ROOT/android/rui-demo/src/main/jniLibs}"
 API=24
 TC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 ABIS=("$@"); [ ${#ABIS[@]} -gt 0 ] || ABIS=(arm64-v8a x86_64)
+# RUI's data sources import db_connector/db_sqlite, whose functions Nim loads
+# from libsqlite3.so when the program starts. Android gives apps no such
+# library (SQLite is not a public NDK library), so the program would print
+# "could not load: libsqlite3.so" and exit before its first line. Link SQLite
+# in instead: the amalgamation, built by the NDK, and --dynlibOverride.
+SQLITE_VERSION=3500400; SQLITE_YEAR=2025
+SQLITE_DIR="$ROOT/build/sqlite/sqlite-amalgamation-$SQLITE_VERSION"
+if [ ! -f "$SQLITE_DIR/sqlite3.c" ]; then
+  mkdir -p "$ROOT/build/sqlite"
+  curl -fsSL --retry 4 -o "$ROOT/build/sqlite/sqlite.zip" \
+    "https://www.sqlite.org/$SQLITE_YEAR/sqlite-amalgamation-$SQLITE_VERSION.zip"
+  (cd "$ROOT/build/sqlite" && unzip -qo sqlite.zip)
+fi
 for abi in "${ABIS[@]}"; do
   case "$abi" in
     arm64-v8a)   cpu=arm64; triple=aarch64-linux-android ;;
@@ -28,17 +41,25 @@ for abi in "${ABIS[@]}"; do
     *) echo "unknown ABI $abi"; exit 2 ;;
   esac
   CC="$TC/$triple$API-clang"
-  mkdir -p "$OUT/$abi"
+  mkdir -p "$OUT/$abi" "$ROOT/build/sqlite/$abi"
+  SQLITE_O="$ROOT/build/sqlite/$abi/sqlite3-meta.o"
+  [ -f "$SQLITE_O" ] || "$CC" -c -O2 -fPIC -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_ENABLE_COLUMN_METADATA \
+    -o "$SQLITE_O" "$SQLITE_DIR/sqlite3.c"
   nim c --hints:off --warnings:off -d:release \
     --os:android --cpu:$cpu --app:lib --noMain -d:useGraphics \
-    -d:AndroidNdk="$ANDROID_NDK_HOME" \
+    -d:AndroidNdk="$ANDROID_NDK_HOME" ${DRUID_RUI_FLAGS:-} \
     --cc:clang --clang.exe:"$CC" --clang.linkerexe:"$CC" \
     --passL:"-Wl,-z,max-page-size=16384" \
+    --dynlibOverride:sqlite3 --passL:"$SQLITE_O" \
     $RUI_PATHS --nimcache:"$ROOT/build/nimcache/rui_android_$abi" \
     -o:"$OUT/$abi/libmain.so" "$MAIN"
   # NativeActivity's entry, raylib's glue calling the program, and Druid's hook into it.
-  syms="$("$TC/llvm-nm" -D --defined-only "$OUT/$abi/libmain.so" | grep -c ' T \(ANativeActivity_onCreate\|android_main\|druid_rui_activity\)$' || true)"
-  [ "$syms" = 3 ] || { echo "  $abi: libmain.so lacks ANativeActivity_onCreate, android_main or druid_rui_activity"; exit 1; }
+  # Nothing may be left to dlopen at start-up but the system's own libraries.
+  if strings "$OUT/$abi/libmain.so" | grep -q 'libsqlite3.so'; then
+    echo "  $abi: libmain.so still loads libsqlite3.so at run time"; exit 1
+  fi
+  syms="$("$TC/llvm-nm" -D --defined-only "$OUT/$abi/libmain.so" | grep -c ' T \(ANativeActivity_onCreate\|android_main\)$' || true)"
+  [ "$syms" = 2 ] || { echo "  $abi: libmain.so lacks ANativeActivity_onCreate or android_main"; exit 1; }
   echo "  $abi: $OUT/$abi/libmain.so ($(du -h "$OUT/$abi/libmain.so" | cut -f1)), needs: $("$TC/llvm-readelf" -d "$OUT/$abi/libmain.so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')"
 done
 # RUI's text engine looks for fonts in the APK's assets/fonts first.

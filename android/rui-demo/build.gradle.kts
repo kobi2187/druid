@@ -19,6 +19,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // -Pdruid.ruiLibs=<dir>: package another RUI program's libmain.so
+    // (e.g. examples/rui/rui_screens.nim, RUI's own mockups) in this app.
+    (project.findProperty("druid.ruiLibs") as String?)?.let { dir ->
+        sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(rootProject.file(dir)))
+    }
     packaging {
         // RUI's library may carry its own mockups' libmain.so (its build_rui.sh):
         // this app's is the one to run.

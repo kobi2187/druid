@@ -82,6 +82,25 @@ go to stderr, and prefs are saved to a JSON file.
   detaches it when the thread exits, through a pthread-key destructor. ART
   aborts the app if a thread exits while still attached.
 
+## Starting a new app (RUI + Druid)
+
+```bash
+RUI_DIR=~/rui2 tools/new_app.sh ~/hello com.example.hello "Hello"
+```
+
+This creates a ready project:
+
+- `app.nim`: the UI (RUI) and Druid's services;
+- a Kotlin `MainActivity` that extends RUI's `RuiActivity`;
+- the Gradle project, which brings in RUI's `rui` and Druid's `druid` Android
+  libraries;
+- `build_android.sh`, which builds `libmain.so` with the NDK;
+- `run_desktop.sh`;
+- Robolectric tests.
+
+See `templates/rui-app/README.md`. `tools/test_all.sh rui` generates one and
+builds and tests it.
+
 ## Using it with RUI
 
 ```nim
@@ -117,8 +136,14 @@ To build an RUI app with Druid for Android:
 RUI_DIR=/path/to/rui2 DRUID_RUI_MAIN=myapp.nim tools/build_rui_android.sh
 ```
 
-`examples/rui/druid_demo.nim` is a complete example (screenshot-free, but
-tested: see below).
+`examples/rui/druid_demo.nim` is a complete example.
+`examples/rui/rui_screens.nim` runs RUI's own mockup screens, unchanged, the
+same way.
+
+**RUI needs a patch to run on Android.** `patches/rui/` has it, with an
+explanation: RUI's SQLite import ends every RUI app at start-up on Android.
+Druid's `tools/build_rui_android.sh` already applies the fix to the builds it
+makes.
 
 ## Using it from any Android app (Kotlin/Java)
 
@@ -171,12 +196,48 @@ Requirements:
 - launches the **RUI demo** in RUI's `RuiActivity`, taps "Ask for the camera",
   allows it, and checks that the answer reached RUI through `attachDruid`.
 
-Screenshots and logs go to `build/device/`. It works with an emulator without
-KVM too (`emulator -accel off`, an `aosp_atd` image), just slowly.
+Screenshots and logs go to `build/device/`.
+
+It also works with an emulator without KVM, just slowly: about 20–30 minutes
+for the first boot, 5 for later ones, and seconds per frame for GL apps. Use
+these settings:
+
+```bash
+emulator -avd <avd> -accel off -gpu guest -no-window -no-audio -no-snapshot -memory 4096 -cores 4
+```
+
+- **Image:** use an `aosp_atd` (Automated Test Device) image.
+- **GPU:** use `-gpu guest`. With `-gpu swiftshader_indirect` nothing reaches
+  the framebuffer and GL apps crash in the system EGL library.
+- **Settings:** set `hide_error_dialogs` to 1 and `verifier_verify_adb_installs`
+  to 0, or system ANR dialogs and install verification time out under
+  software emulation.
+- **Toasts:** ATD images have no SystemUI, so text toasts are not drawn there.
+
+With KVM (your machine), the same image boots in under a minute; Waydroid is
+faster still.
 
 Out of scope: camera capture, Bluetooth scanning, Play Services location.
 
 ## Notes
+
+- **stdout/stderr go to logcat.** On Android, Druid sends stdout and stderr
+  to logcat (tags `stdout` and `stderr`) from the moment the library loads,
+  and Nim's fatal errors go there too (tag `nim`). Otherwise Android discards
+  them, so a Nim program that fails during start-up (an exception in a module
+  initializer, a missing `{.dynlib.}` library) dies with "exited cleanly (1)"
+  and no message. The redirect is flushed at exit so the last lines aren't
+  lost. Opt out with `-d:druidKeepStdio`. (`echo` itself already goes to
+  logcat under tag `nim`.)
+- **SQLite in RUI apps on Android.** RUI's data sources import
+  `db_connector/db_sqlite`, which `dlopen`s `libsqlite3.so` at start-up.
+  Android has no such public library, so every RUI app exits before its
+  first line. `tools/build_rui_android.sh` compiles the SQLite amalgamation
+  with the NDK and links it in (`--dynlibOverride:sqlite3`), so the SQLite
+  reader works too. Use the same flags if you build RUI apps another way.
+- **RUI's library and `libmain.so`.** An app that ships its own RUI program
+  must not also take the `libmain.so` that RUI's `build_rui.sh` leaves in RUI's
+  `rui` library. `android/build.gradle.kts` empties that library's jniLibs.
 
 - **Desktop JVMs and signals:** build JNI libraries for a desktop JVM (as the
   Robolectric harness is) with `-d:noSignalHandler`. HotSpot uses SIGSEGV

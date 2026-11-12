@@ -8,8 +8,9 @@
 ## (no vibrator, permissions granted, toasts on stderr).
 
 import std/[strutils]
+import druid          # first: on Android its stdout/stderr -> logcat is in place before RUI starts
 import rui
-import druid, druid/ruiapp
+import druid/ruiapp
 
 proc infoLines*(): seq[string] =
   ## What Druid knows about the device, as the screen shows it.
@@ -69,6 +70,7 @@ proc wireDemo*(app: App, status: Link[string]) =
 
 when isMainModule:
   ruiAndroidMain:
+    logInfo "druid_demo: main started"
     state:
       status: string = "Tap a button"
     let app = newApp("Druid demo", 360, 800)

@@ -7,8 +7,9 @@
 #            the NDK for four ABIs and packaged into an APK
 #   rui      Druid inside RUI: tests/test_rui.nim through RUI's UI harness, the
 #            demo laid out headless, built for Android into libmain.so, and
-#            android/rui-demo's Robolectric tests and APK. Needs an RUI
-#            checkout (RUI_DIR, default ../rui2); skipped without one.
+#            android/rui-demo's Robolectric tests and APK; then a new app from
+#            templates/rui-app (tools/new_app.sh), built and tested the same
+#            way. Needs an RUI checkout (RUI_DIR, default ../rui2).
 #
 # No stage: all of them. Needs nim (2.x) and jnim; android needs a JDK and
 # ANDROID_HOME with platform 36 and an NDK; rui needs naylib 25.x and yaml.
@@ -37,7 +38,13 @@ for stage in "${STAGES[@]}"; do
       "$ROOT/tools/test_rui.sh"
       "$ROOT/tools/build_rui_demo.sh"
       "$ROOT/tools/build_rui_android.sh"
-      (cd "$ROOT/android" && "${GRADLE[@]}" :rui-demo:testDebugUnitTest :rui-demo:assembleDebug) ;;
+      (cd "$ROOT/android" && "${GRADLE[@]}" :rui-demo:testDebugUnitTest :rui-demo:assembleDebug)
+      # A new app from the template: NDK build, Robolectric tests, APK, desktop layout.
+      rm -rf "$ROOT/build/scaffold" && mkdir -p "$ROOT/build/scaffold"
+      "$ROOT/tools/new_app.sh" "$ROOT/build/scaffold/hello" com.example.hello "Hello Druid"
+      (cd "$ROOT/build/scaffold/hello" && ./build_android.sh x86_64 \
+        && (cd android && ./gradlew --no-daemon -q :app:testDebugUnitTest :app:assembleDebug) \
+        && RUI_LAYOUT_DUMP="$PWD/build/layout.txt" ./run_desktop.sh && grep -q AppBar build/layout.txt) ;;
     *) echo "unknown stage $stage (host, android, rui)"; exit 2 ;;
   esac
 done
