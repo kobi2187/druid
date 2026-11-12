@@ -330,6 +330,12 @@ proc run(command: string): string =
 
 # ---- JNI entry points (dev.druid.NimHarness) ----
 
+# The same entry points under the instrumented test's class (android/druid/src/androidTest).
+proc Java_dev_druid_DeviceTest_start(env: JNIEnvPtr, cls: JClass, context: jobject) {.exportc, dynlib, cdecl.} =
+  startDruid(env, context)
+proc Java_dev_druid_DeviceTest_stop(env: JNIEnvPtr, cls: JClass) {.exportc, dynlib, cdecl.} =
+  stopDruid()
+
 proc Java_dev_druid_NimHarness_start(env: JNIEnvPtr, cls: JClass, context: jobject) {.exportc, dynlib, cdecl.} =
   startDruid(env, context)
 
@@ -337,4 +343,7 @@ proc Java_dev_druid_NimHarness_stop(env: JNIEnvPtr, cls: JClass) {.exportc, dynl
   stopDruid()
 
 proc Java_dev_druid_NimHarness_run(env: JNIEnvPtr, cls: JClass, command: jstring): jstring {.exportc, dynlib, cdecl.} =
+  newJString(env, run(toNim(env, command)))
+
+proc Java_dev_druid_DeviceTest_run(env: JNIEnvPtr, cls: JClass, command: jstring): jstring {.exportc, dynlib, cdecl.} =
   newJString(env, run(toNim(env, command)))

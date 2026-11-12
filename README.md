@@ -159,10 +159,22 @@ Requirements:
 - `rui`: an RUI checkout (`RUI_DIR`, default `../rui2`) with `naylib` 25.x and
   `yaml`.
 
-Not covered: nothing here runs on a real device or emulator, since there is no
-KVM in CI. Robolectric checks the Java side, and the native code runs on the
-host; the gap between them is EGL, the input queue, and real hardware. Camera
-capture, Bluetooth scanning and Play Services location are out of scope.
+### On a device or emulator
+
+`tools/device_check.sh` runs on whatever `adb` sees. It does three things:
+
+- runs the **instrumented tests** (`android/druid/src/androidTest`): the same
+  Nim harness, built with the NDK, against real ART, real system services and
+  CheckJNI;
+- launches the **sample**, presses its button, answers the **real system
+  permission dialog**, and checks that Nim saw the grant;
+- launches the **RUI demo** in RUI's `RuiActivity`, taps "Ask for the camera",
+  allows it, and checks that the answer reached RUI through `attachDruid`.
+
+Screenshots and logs go to `build/device/`. It works with an emulator without
+KVM too (`emulator -accel off`, an `aosp_atd` image), just slowly.
+
+Out of scope: camera capture, Bluetooth scanning, Play Services location.
 
 ## Notes
 
