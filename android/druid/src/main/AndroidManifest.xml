@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Normal permissions (granted at install) the services use. Dangerous
+         ones (location, camera, ...) are the app's to declare: Druid cannot
+         know which the app needs. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <application>
+        <!-- Asks for runtime permissions on behalf of any Activity (a
+             NativeActivity cannot receive the result) and finishes at once. -->
+        <activity
+            android:name="dev.druid.DruidPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+</manifest>
