@@ -5,6 +5,7 @@
 // any host project.
 plugins {
     id("com.android.library")
+    jacoco
 }
 
 android {
@@ -21,6 +22,10 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+    }
+    buildTypes {
+        // ./gradlew :druid:createDebugUnitTestCoverageReport -> build/reports/coverage/test/debug/
+        debug { enableUnitTestCoverage = true }
     }
 }
 
@@ -39,9 +44,18 @@ dependencies {
 // Robolectric would download its Android framework jar itself, at test time,
 // outside Gradle's cache. Fetch it as a dependency and run offline against it
 // (the version Robolectric 4.17 wants for SDK 36).
-val robolectricRuntime: Configuration by configurations.creating { isTransitive = false }
-dependencies {
-    robolectricRuntime("org.robolectric:android-all-instrumented:16-robolectric-13921718-i7")
+// One configuration per jar: in a single one, Gradle's conflict resolution
+// would keep only the newest version of the artifact.
+val androidAllVersions = listOf(
+    "7.0.0_r1-robolectric-r1-i7",       // API 24 (minSdk)
+    "9-robolectric-4913185-2-i7",        // 28
+    "11-robolectric-6757853-i7",         // 30
+    "13-robolectric-9030017-i7",         // 33
+    "16-robolectric-13921718-i7")        // 36
+val robolectricRuntime = androidAllVersions.map { v ->
+    configurations.create("robolectricRuntime_" + v.substringBefore('-')) { isTransitive = false }.also {
+        dependencies.add(it.name, "org.robolectric:android-all-instrumented:$v")
+    }
 }
 val robolectricJars = tasks.register<Copy>("robolectricJars") {
     from(robolectricRuntime)
@@ -55,6 +69,12 @@ val robolectricJars = tasks.register<Copy>("robolectricJars") {
 val harnessLib = rootProject.layout.projectDirectory.file("../build/host/libdruid_harness.so").asFile
 tasks.withType<Test>().configureEach {
     dependsOn(robolectricJars)
+    // Robolectric loads the classes under test through its own loader: JaCoCo
+    // has to count classes without a location too.
+    extensions.configure<JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
     jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED",
             "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
     systemProperty("robolectric.offline", "true")

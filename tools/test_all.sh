@@ -1,10 +1,15 @@
 #!/bin/bash
 # test_all.sh [stage...] -- everything that checks Druid, in stages:
 #
-#   host     tests/test_host.nim: the Nim API on the desktop (no JVM)
-#   android  the Nim harness and the sample's Nim built for the host, run in
-#            Robolectric (android/druid, android/sample); the sample built with
-#            the NDK for four ABIs and packaged into an APK
+#   host     the Nim API on the desktop (no JVM): tests/test_host.nim, the
+#            simulated device (test_simulation.nim), the conformance scenarios
+#            on the simulator (test_conformance.nim), and a check that every
+#            exported proc of the API is called by some test
+#   android  per-module Robolectric tests of the Java side on Android 7.0 to 16
+#            (API 24, 28, 30, 33, 36), with JaCoCo coverage; the Nim harness
+#            built for the host and run through JNI in Robolectric, including
+#            the conformance scenarios (android/druid); the sample (android/sample)
+#            built with the NDK for four ABIs and packaged into an APK
 #   rui      Druid inside RUI: tests/test_rui.nim through RUI's UI harness, the
 #            demo laid out headless, built for Android into libmain.so, and
 #            android/rui-demo's Robolectric tests and APK; then a new app from
@@ -23,12 +28,18 @@ for stage in "${STAGES[@]}"; do
   echo "== $stage"
   case "$stage" in
     host)
-      nim c -r --hints:off --nimcache:"$ROOT/build/nimcache/test_host" \
-        -o:"$ROOT/build/tests/test_host" "$ROOT/tests/test_host.nim" ;;
+      export DRUID_OPEN_LINKS=0
+      for t in test_host test_simulation test_conformance; do
+        nim c -r --hints:off --nimcache:"$ROOT/build/nimcache/$t" \
+          -o:"$ROOT/build/tests/$t" "$ROOT/tests/$t.nim"
+      done
+      python3 "$ROOT/tools/check_api_coverage.py" ;;
     android)
       "$ROOT/tools/build_host_harness.sh"
       "$ROOT/tools/build_ndk.sh"
-      (cd "$ROOT/android" && "${GRADLE[@]}" :druid:testDebugUnitTest :sample:testDebugUnitTest :sample:assembleDebug) ;;
+      (cd "$ROOT/android" && "${GRADLE[@]}" :druid:createDebugUnitTestCoverageReport \
+        :sample:testDebugUnitTest :sample:assembleDebug)
+      echo "   coverage: android/druid/build/reports/coverage/test/debug/index.html" ;;
     rui)
       RUI_DIR="${RUI_DIR:-$ROOT/../rui2}"
       if [ ! -d "$RUI_DIR/packages/rui/src" ]; then

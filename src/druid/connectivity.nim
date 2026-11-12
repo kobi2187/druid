@@ -5,10 +5,10 @@
 ## connectivity().startMonitoring()   # then ekConnectivity events / latestNetwork()
 ## ```
 ##
-## On the desktop: connected, type ntOther, not metered.
+## On the desktop: the simulated network (Wi-Fi by default; `simulator().setNetwork`).
 
 import std/[options]
-import bridge, events
+import bridge, events, simulator
 
 type
   Connectivity* = object
@@ -25,19 +25,23 @@ proc parseNetworkType*(s: string): NetworkType =
 
 proc isConnected*(_: Connectivity): bool =
   ## Whether the default network offers internet.
-  bridged(true): callStatic(bool, "Connectivity", "isConnected")
+  bridged(simNetwork().connected): callStatic(bool, "Connectivity", "isConnected")
 proc networkType*(_: Connectivity): NetworkType =
-  bridged(ntOther): parseNetworkType(callStatic(string, "Connectivity", "networkType"))
+  parseNetworkType(bridged((if simNetwork().connected: simNetwork().kind else: "none"),
+                           callStatic(string, "Connectivity", "networkType")))
 proc isMetered*(_: Connectivity): bool =
   ## Whether data may cost money (mobile data, a hotspot).
-  bridged(false): callStatic(bool, "Connectivity", "isMetered")
+  bridged(simNetwork().metered): callStatic(bool, "Connectivity", "isMetered")
 
 proc startMonitoring*(_: Connectivity) =
   ## Report changes of the default network as `ekConnectivity` events.
   if druidStarted(): callStatic(void, "Connectivity", "startMonitoring")
+  else: simSetMonitoring(true)
 proc stopMonitoring*(_: Connectivity) =
   if druidStarted(): callStatic(void, "Connectivity", "stopMonitoring")
-proc isMonitoring*(_: Connectivity): bool = bridged(false): callStatic(bool, "Connectivity", "isMonitoring")
+  else: simSetMonitoring(false)
+proc isMonitoring*(_: Connectivity): bool =
+  bridged(simMonitoring()): callStatic(bool, "Connectivity", "isMonitoring")
 
 proc latest*(_: Connectivity): Option[tuple[networkType: NetworkType, connected, metered: bool]] =
   ## The last change monitoring reported (none before the first).

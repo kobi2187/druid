@@ -9,10 +9,11 @@
 ## ```
 ##
 ## Readings arrive as `ekSensor` events; `latest` keeps the newest per type.
-## Stop sensors you do not need: they cost battery. None on the desktop.
+## Stop sensors you do not need: they cost battery. On the desktop the
+## simulated device has its profile's sensors, fed by `simulator().setSensor`.
 
 import std/[options]
-import bridge, events
+import bridge, events, simulator
 export SensorReading
 
 type
@@ -35,10 +36,14 @@ type
 
 proc sensors*(): Sensors = discard
 
-proc has*(_: Sensors, t: SensorType): bool = bridged(false): callStatic(bool, "Sensors", "has", ord(t))
+proc has*(_: Sensors, t: SensorType): bool =
+  bridged(ord(t) in simulator().profile.sensors): callStatic(bool, "Sensors", "has", ord(t))
 
 proc info*(_: Sensors, t: SensorType): Option[SensorInfo] =
-  if not druidStarted(): return none(SensorInfo)
+  if not druidStarted():
+    if ord(t) notin simulator().profile.sensors: return none(SensorInfo)
+    return some(SensorInfo(name: "Simulated " & ($t)[2 .. ^1], vendor: "Druid simulator",
+                           maxRange: 1000, resolution: 0.01, powerMa: 0.5, minDelayUs: 10_000))
   let d = callStatic(seq[string], "Sensors", "describe", ord(t))
   let s = callStatic(seq[float32], "Sensors", "specs", ord(t))
   if d.len < 2 or s.len < 4: return none(SensorInfo)
@@ -47,23 +52,25 @@ proc info*(_: Sensors, t: SensorType): Option[SensorInfo] =
 
 proc types*(_: Sensors): seq[int] =
   ## Sensor.TYPE_* of every sensor on the device (some have no `SensorType`).
-  bridged(newSeq[int]()): callStatic(seq[int], "Sensors", "types")
+  bridged(simulator().profile.sensors): callStatic(seq[int], "Sensors", "types")
 
 proc start*(_: Sensors, t: SensorType, delay: SensorDelay = sdUi): bool {.discardable.} =
   ## Start readings; false when the device has no such sensor.
-  bridged(false): callStatic(bool, "Sensors", "start", ord(t), ord(delay))
+  bridged(simStartSensor(ord(t))): callStatic(bool, "Sensors", "start", ord(t), ord(delay))
 
 proc start*(_: Sensors, t: SensorType, periodUs: int): bool {.discardable.} =
   ## Start readings about every `periodUs` microseconds (more than 3).
   if periodUs <= 3: raise newException(ValueError, "periodUs must be > 3; use a SensorDelay")
-  bridged(false): callStatic(bool, "Sensors", "start", ord(t), periodUs)
+  bridged(simStartSensor(ord(t))): callStatic(bool, "Sensors", "start", ord(t), periodUs)
 
 proc stop*(_: Sensors, t: SensorType) =
   if druidStarted(): callStatic(void, "Sensors", "stop", ord(t))
+  else: simStopSensor(ord(t))
 proc stopAll*(_: Sensors) =
   if druidStarted(): callStatic(void, "Sensors", "stopAll")
+  else: simStopAllSensors()
 proc isRunning*(_: Sensors, t: SensorType): bool =
-  bridged(false): callStatic(bool, "Sensors", "isRunning", ord(t))
+  bridged(simSensorRunning(ord(t))): callStatic(bool, "Sensors", "isRunning", ord(t))
 
 proc latest*(_: Sensors, t: SensorType): Option[SensorReading] =
   ## The newest reading `pollEvents` has seen.

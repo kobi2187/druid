@@ -196,6 +196,11 @@ proc postLocal*(raw: string) =
   ## after Android's.
   gState.local.addLast raw
 
+var beforeLocalPoll*: proc() {.nimcall, gcsafe.}
+  ## Run by `pollEvents` before it drains the Nim-side queue: the desktop
+  ## simulator answers permission requests there, as a phone's dialog does
+  ## after the request returned.
+
 proc pollEvents*(): seq[DruidEvent] =
   ## Every event since the last call, oldest first, each already applied to the
   ## latest-value state. Call it once per frame, on one thread (the UI's).
@@ -205,6 +210,8 @@ proc pollEvents*(): seq[DruidEvent] =
       let ev = parseEvent(raw)
       applyEvent(ev)
       result.add ev
+  if beforeLocalPoll != nil:
+    {.cast(gcsafe).}: beforeLocalPoll()
   while gState.local.len > 0:
     let ev = parseEvent(gState.local.popFirst())
     applyEvent(ev)

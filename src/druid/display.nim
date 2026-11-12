@@ -7,7 +7,7 @@
 ##
 ## RUI scales its layout by `density` (Android's 1x is 160 dpi).
 
-import bridge
+import bridge, simulator
 
 type
   Display* = object
@@ -26,17 +26,22 @@ type
 proc display*(): Display = discard
 
 proc metrics*(_: Display): DisplayMetrics =
-  ## On the desktop: 0 x 0 at density 1 (160 dpi); RUI knows the window.
+  ## On the desktop: the simulated device's screen.
   if not druidStarted():
-    return DisplayMetrics(density: 1, dpi: 160, fontScale: 1, refreshRate: 60, xdpi: 160, ydpi: 160)
+    let p = simulator().profile
+    return DisplayMetrics(widthPx: p.widthPx, heightPx: p.heightPx, density: p.density, dpi: p.dpi,
+                          fontScale: 1, refreshRate: p.refreshRate,
+                          xdpi: p.dpi.float32, ydpi: p.dpi.float32)
   let v = callStatic(seq[float32], "Display", "metrics")
   if v.len < 9: raise newException(DruidError, "Display.metrics: " & $v.len & " values")
   DisplayMetrics(widthPx: int(v[0]), heightPx: int(v[1]), density: v[2], dpi: int(v[3]),
                  fontScale: v[4], refreshRate: v[5], rotation: int(v[6]), xdpi: v[7], ydpi: v[8])
 
 proc orientation*(_: Display): Orientation =
-  bridged(orUndefined):
-    let o = callStatic(int, "Display", "orientation")
+  block:
+    let p = simulator().profile
+    let o = if druidStarted(): callStatic(int, "Display", "orientation")
+            elif p.heightPx >= p.widthPx: 1 else: 2
     if o in 0..2: Orientation(o) else: orUndefined
 
 proc dpToPx*(m: DisplayMetrics, dp: float): float = dp * float(m.density)

@@ -38,8 +38,17 @@ proc externalCacheDir*(_: Storage): string =
 proc externalState*(_: Storage): string =
   ## "mounted", "removed", ... (Environment.MEDIA_*).
   bridged("mounted"): callStatic(string, "Storage", "externalState")
+when not defined(windows):
+  import std/posix
+  proc statfs(path: string): tuple[free, total: int64] =
+    var st: Statvfs
+    if statvfs(path.cstring, st) != 0: return (-1'i64, -1'i64)
+    (int64(st.f_bavail) * int64(st.f_frsize), int64(st.f_blocks) * int64(st.f_frsize))
+else:
+  proc statfs(path: string): tuple[free, total: int64] = (-1'i64, -1'i64)
+
 proc freeBytes*(_: Storage, path: string): int64 =
-  ## Bytes available to the app on the volume of `path`; -1 on the desktop.
-  bridged(-1'i64): callStatic(int64, "Storage", "freeBytes", path)
+  ## Bytes available to the app on the volume of `path` (on the desktop: this disk's).
+  bridged(statfs(path).free): callStatic(int64, "Storage", "freeBytes", path)
 proc totalBytes*(_: Storage, path: string): int64 =
-  bridged(-1'i64): callStatic(int64, "Storage", "totalBytes", path)
+  bridged(statfs(path).total): callStatic(int64, "Storage", "totalBytes", path)

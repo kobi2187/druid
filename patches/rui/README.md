@@ -33,14 +33,35 @@ last lines. `-d:ruiKeepStdio` turns it off.
 Druid does the same and both set `NIM_STDIO_LOGCAT`, so an app with RUI and
 Druid redirects once.
 
-## Not in this patch: blurry text on phones
+## 0002: sharp text and edges on phones (density-aware rendering)
 
-RUI lays out the window it was given (`newApp(..., 360, 800)`). On Android,
-raylib renders that size and stretches it to the screen, about 3x on a
-1080x2340 phone, so text is soft. This is item 2 in RUI's
-`mobile/README.md`. The fix is to render at the physical size:
+Before this patch, RUI laid out the window it was given (`newApp(..., 360, 800)`).
+On Android, raylib rendered that size and stretched it to the screen, about 3x
+on a 1080x2400 phone, so text and edges were soft. Now:
 
-- lay out in dp, scaling by `displayDpi() / 160`;
-- rasterize glyphs and textures at the scaled size.
+- **Two kinds of pixel.** Layout, widget bounds, events and font sizes are in
+  logical pixels (Android's dp). The window, the widget textures and the glyph
+  rasters are in physical pixels. `pixelScale` (in the new
+  `rui_core/pixel_density.nim`) relates the two:
+  - Android: the display's density, `displayDpi() / 160`; the window opens at
+    the display's native size.
+  - Desktop: `RUI_SCALE`, 1 by default, so a desktop window can show a phone's
+    layout at the phone's sharpness.
+- **Rendering at full resolution:**
+  - widget textures are allocated at their bounds × scale and painted under a
+    scale transform;
+  - glyphs are rasterized from the font scaled by `pixelScale`;
+  - every blit lands 1:1 on physical pixels.
+- **Input.** Pointer, touch and GLFW button positions are divided by the scale,
+  as are the window size the layout fills and the visual probe's rectangles.
 
-Rendering at the physical size and stretching the result would not help.
+At scale 1 nothing changes. Tested:
+- RUI's unit tests (2094), GL checks, scripted UI tests and the 59 layout
+  snapshots, all unchanged;
+- RUI's scripted UI tests also pass at `RUI_SCALE=2`;
+- clicks land correctly at 1, 3 and 2.625;
+- new `tests/gl/pixel_density.nim` (at 2x: window size, logical layout, the
+  exact physical pixels a square covers, textures and glyphs at 2x, logical hit
+  testing) and `tests/test_pixel_density.nim`.
+
+Applies on its own or after 0001.

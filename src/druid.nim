@@ -21,14 +21,14 @@
 ## ```
 ##
 ## The Java half is the `druid` Android library (android/druid in this
-## repository); add it to the app. Every call works on the desktop too, with
-## neutral answers (no vibrator, permissions granted, ...), so one program
-## builds for both.
+## repository); add it to the app. On the desktop every call goes to a
+## simulated Android device with the same rules (druid/simulator), so what
+## works on the desktop works on the phone.
 
-import druid/[bridge, events, log, ndk, device, app, permissions, clipboard, vibration,
+import druid/[bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
               notifications, connectivity, power, storage, display, audio, location,
               sensors, keyboard, intents, prefs, crypto, hardware, media]
-export bridge, events, log, ndk, device, app, permissions, clipboard, vibration,
+export bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
        notifications, connectivity, power, storage, display, audio, location,
        sensors, keyboard, intents, prefs, crypto, hardware, media
 

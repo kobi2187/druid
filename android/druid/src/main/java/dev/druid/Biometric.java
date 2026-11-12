@@ -40,24 +40,38 @@ public final class Biometric {
             BiometricPrompt.Builder b = new BiometricPrompt.Builder(c).setTitle(title);
             if (subtitle != null && !subtitle.isEmpty()) b.setSubtitle(subtitle);
             b.setNegativeButton(cancelText == null || cancelText.isEmpty() ? "Cancel" : cancelText, main,
-                (d, w) -> Druid.post("biometric", requestId, "error", 13, "cancelled"));
+                (d, w) -> cancelled(requestId));
             CancellationSignal cancel = new CancellationSignal();
             synchronized (running) { running.put(requestId, cancel); }
-            b.build().authenticate(cancel, main, new BiometricPrompt.AuthenticationCallback() {
-                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) {
-                    done(requestId);
-                    Druid.post("biometric", requestId, "succeeded", 0, "");
-                }
-                @Override public void onAuthenticationFailed() {
-                    Druid.post("biometric", requestId, "failed", 0, "");
-                }
-                @Override public void onAuthenticationError(int code, CharSequence msg) {
-                    done(requestId);
-                    Druid.post("biometric", requestId, "error", code, msg == null ? "" : msg.toString());
-                }
-            });
+            b.build().authenticate(cancel, main, callbackFor(requestId));
             return true;
         });
+    }
+
+    /** What the prompt's answers become: "biometric" events for {@code requestId}. */
+    static BiometricPrompt.AuthenticationCallback callbackFor(int requestId) {
+        return new BiometricPrompt.AuthenticationCallback() {
+            @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) {
+                done(requestId);
+                Druid.post("biometric", requestId, "succeeded", 0, "");
+            }
+            @Override public void onAuthenticationFailed() {
+                Druid.post("biometric", requestId, "failed", 0, "");
+            }
+            @Override public void onAuthenticationError(int code, CharSequence msg) {
+                done(requestId);
+                Druid.post("biometric", requestId, "error", code, msg == null ? "" : msg.toString());
+            }
+        };
+    }
+
+    /** Whether request {@code id} still has its prompt up. */
+    static boolean isRunning(int id) { synchronized (running) { return running.containsKey(id); } }
+
+    /** The prompt's own Cancel button. */
+    static void cancelled(int requestId) {
+        done(requestId);
+        Druid.post("biometric", requestId, "error", 13, "cancelled");
     }
 
     private static void done(int id) { synchronized (running) { running.remove(id); } }

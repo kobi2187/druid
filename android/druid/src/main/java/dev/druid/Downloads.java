@@ -20,10 +20,10 @@ public final class Downloads {
         return (DownloadManager) Druid.context().getSystemService(Context.DOWNLOAD_SERVICE);
     }
 
-    private static boolean listening;
+    private static Context listeningOn;   // the Context the receiver is registered with
 
     private static synchronized void listen() {
-        if (listening) return;
+        if (listeningOn == Druid.context()) return;
         BroadcastReceiver r = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
                 long id = i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
@@ -35,7 +35,7 @@ public final class Downloads {
         IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= 33) Druid.context().registerReceiver(r, f, Context.RECEIVER_EXPORTED);
         else Druid.context().registerReceiver(r, f);
-        listening = true;
+        listeningOn = Druid.context();
     }
 
     /**

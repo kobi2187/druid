@@ -37,7 +37,8 @@ public final class Player {
         return id;
     }
 
-    private static synchronized MediaPlayer get(int id) {
+    /** The MediaPlayer behind {@code id} (tests drive it through Robolectric's shadow). */
+    static synchronized MediaPlayer get(int id) {
         MediaPlayer mp = players.get(id);
         if (mp == null) throw new IllegalArgumentException("no player " + id);
         return mp;

@@ -17,13 +17,14 @@ public final class Clipboard {
         Druid.onMain(() -> cm().setPrimaryClip(ClipData.newPlainText(label, text)));
     }
 
-    /** The clip's text, or null when there is none (or it is not text). */
+    /** The clip's text, or null when there is none (or it is not text, or empty: before
+     *  Android 9 the only way to clear the clipboard is an empty clip). */
     public static String getText() throws Exception {
         return Druid.onMain(() -> {
             ClipData c = cm().getPrimaryClip();
             if (c == null || c.getItemCount() == 0) return null;
             CharSequence t = c.getItemAt(0).coerceToText(Druid.context());
-            return t == null ? null : t.toString();
+            return t == null || t.length() == 0 ? null : t.toString();
         });
     }
 
@@ -32,7 +33,8 @@ public final class Clipboard {
             ClipboardManager m = cm();
             return m.hasPrimaryClip() && m.getPrimaryClip() != null
                 && m.getPrimaryClip().getItemCount() > 0
-                && m.getPrimaryClip().getItemAt(0).getText() != null;
+                && m.getPrimaryClip().getItemAt(0).getText() != null
+                && m.getPrimaryClip().getItemAt(0).getText().length() > 0;
         });
     }
 

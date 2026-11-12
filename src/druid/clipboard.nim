@@ -5,7 +5,8 @@
 ## let t = clipboard().text        # Option[string]
 ## ```
 ##
-## On the desktop a process-local clipboard stands in.
+## On the desktop a process-local clipboard stands in, with Android's rule
+## that an empty clip is no text.
 
 import std/[options]
 import bridge
@@ -18,7 +19,7 @@ var desktopClip {.threadvar.}: Option[string]
 proc setText*(_: Clipboard, text: string, label = "text") =
   ## `label` is shown by some keyboards' clipboard UIs.
   if druidStarted(): callStatic(void, "Clipboard", "setText", label, text)
-  else: desktopClip = some(text)
+  else: desktopClip = (if text.len > 0: some(text) else: none(string))
 
 proc text*(_: Clipboard): Option[string] =
   ## The clipboard's text; none when it is empty or holds something else.

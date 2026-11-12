@@ -99,12 +99,15 @@ public class NimHarnessTest {
         assertEquals(android.os.Build.MODEL, f[3]);
         assertEquals("1", f[4]);                 // isAndroid
         assertFalse(f[5].isEmpty());             // locale
+        assertEquals(android.os.Build.BRAND, f[10]);
+        assertEquals(android.os.Build.DEVICE, f[11]);
+        assertTrue(f[12].equals("0") || f[12].equals("1"));
     }
 
     @Test public void stopThenCallsAnswerDefaults() {
         NimHarness.stop();
         assertEquals("0", cmd("started"));
-        assertEquals("0|0", cmd("vib.info"));    // desktop answers, not a crash
+        assertEquals("1|1", cmd("vib.info"));    // the desktop simulator's phone, not a crash
         NimHarness.start(app);
         assertEquals("1", cmd("started"));
     }
@@ -116,6 +119,9 @@ public class NimHarnessTest {
         assertEquals("1", f[5]);
         assertEquals("0", f[6]);
         assertEquals("1", cmd("app", PackageManager.FEATURE_NFC, app.getPackageName()).split("\\|")[6]);
+        String[] times = cmd("app.times").split("\\|");
+        assertEquals(2, times.length);
+        assertTrue(Long.parseLong(times[1]) >= Long.parseLong(times[0]));
     }
 
     @Test public void stringsCrossAsUtf16() {
@@ -134,6 +140,13 @@ public class NimHarnessTest {
         assertTrue(r, r.startsWith("ERR DruidError: class dev.druid.NoSuchClass"));
         assertEquals("1", cmd("started"));       // and Druid still works
         assertEquals("ok", cmd("clip.set", "after"));
+    }
+
+    @Test public void explicitDetachThenAttachAgain() throws Exception {
+        int before = Thread.getAllStackTraces().size();
+        assertEquals("36", cmd("thread.detach"));
+        for (int k = 0; k < 50 && Thread.getAllStackTraces().size() > before; k++) Thread.sleep(10);
+        assertEquals(before, Thread.getAllStackTraces().size());
     }
 
     @Test public void nativeThreadsAreAttachedAndDetachedOnExit() throws Exception {
@@ -166,6 +179,19 @@ public class NimHarnessTest {
         c.pause();
         cmd("poll");
         assertEquals("paused", cmd("lifecycle"));
+    }
+
+    // ---- conformance: the same scenarios the desktop simulator passes ----
+
+    @Test public void conformance() {
+        String[] names = cmd("conf.list").split(",");
+        assertTrue(names.length >= 14);
+        StringBuilder failures = new StringBuilder();
+        for (String name : names) {
+            String r = cmd("conf", name);
+            if (!r.equals("ok")) failures.append(name).append(": ").append(r).append('\n');
+        }
+        assertEquals("", failures.toString());
     }
 
     // ---- permissions ----
@@ -336,6 +362,7 @@ public class NimHarnessTest {
         assertEquals(app.getNoBackupFilesDir().getAbsolutePath(), f[2]);
         assertTrue(f[3], f[3].endsWith("Pictures"));
         assertEquals("written by nim", cmd("storage.write", "n.txt", "written by nim"));
+        assertEquals(app.getExternalCacheDir().getAbsolutePath(), f[6]);
         org.robolectric.shadows.ShadowStatFs.registerStats(f[0], 1000, 400, 300);
         String[] space = cmd("storage.space", f[0]).split("\\|");
         assertEquals(300L * 4096, Long.parseLong(space[0]));
@@ -362,6 +389,8 @@ public class NimHarnessTest {
         assertEquals(AudioManager.RINGER_MODE_VIBRATE, am.getRingerMode());
         assertEquals("1", cmd("audio.mute", "1"));
         assertTrue(am.isMicrophoneMute());
+        assertEquals("6|0", cmd("audio.adjust", "asMusic", "vdRaise"));
+        assertEquals(6, am.getStreamVolume(AudioManager.STREAM_MUSIC));
     }
 
     // ---- location, sensors ----
@@ -451,6 +480,14 @@ public class NimHarnessTest {
         assertEquals("tel:%2B33%201%2023", shadowOf(a).getNextStartedActivity().getDataString());
         assertEquals("1", cmd("intent.email", "a@b.c", "Hi", "Body"));
         assertEquals(Intent.ACTION_SENDTO, shadowOf(a).getNextStartedActivity().getAction());
+        assertEquals("1", cmd("intent.settings", android.provider.Settings.ACTION_WIFI_SETTINGS));
+        assertEquals(android.provider.Settings.ACTION_WIFI_SETTINGS, shadowOf(a).getNextStartedActivity().getAction());
+        assertEquals("ok", cmd("perm.settings"));
+        assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, shadowOf(a).getNextStartedActivity().getAction());
+        assertEquals("1", cmd("bt.enable"));
+        assertEquals(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE, shadowOf(a).getNextStartedActivity().getAction());
+        assertEquals("1", cmd("nfc.settings"));
+        assertEquals(android.provider.Settings.ACTION_NFC_SETTINGS, shadowOf(a).getNextStartedActivity().getAction());
         assertEquals("1", cmd("intent.appSettings"));
         assertEquals("package:" + app.getPackageName(), shadowOf(a).getNextStartedActivity().getDataString());
 
@@ -495,6 +532,10 @@ public class NimHarnessTest {
         assertEquals(hex(MessageDigest.getInstance("MD5").digest("hello".getBytes(StandardCharsets.UTF_8))), f[2]);
         assertEquals("24", f[3]);
         assertEquals("36", f[4]);
+        assertEquals(hex(MessageDigest.getInstance("SHA-512").digest("hello".getBytes(StandardCharsets.UTF_8))), f[5]);
+        javax.crypto.Mac mac512 = javax.crypto.Mac.getInstance("HmacSHA512");
+        mac512.init(new javax.crypto.spec.SecretKeySpec("key".getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
+        assertEquals(hex(mac512.doFinal("hello".getBytes(StandardCharsets.UTF_8))), f[6]);
     }
 
     private static String hex(byte[] b) {
@@ -512,7 +553,9 @@ public class NimHarnessTest {
         shadowOf(tm).setNetworkCountryIso("fr");
         shadowOf(tm).setPhoneType(TelephonyManager.PHONE_TYPE_GSM);
         shadowOf(tm).setSimState(TelephonyManager.SIM_STATE_READY);
-        assertEquals("1|ptGsm|ssReady|Druid Mobile|fr|0", cmd("tel"));
+        shadowOf(tm).setSimOperatorName("Druid SIM");
+        shadowOf(tm).setSimCountryIso("il");
+        assertEquals("1|ptGsm|ssReady|Druid Mobile|fr|0|Druid SIM|il", cmd("tel"));
     }
 
     @Test public void bluetoothAndNfc() {
@@ -554,7 +597,13 @@ public class NimHarnessTest {
         idle();
         assertEquals("prepared:4000", cmd("player.events"));
         assertEquals("1|4000", cmd("player.play", opened[0]));
+        assertTrue(cmd("player.control", opened[0], 1500).startsWith("0|"));   // paused
+        idle();                                  // a seek completes on the main looper
+        assertEquals(1500, Player.position(Integer.parseInt(opened[0])));
         assertEquals("0", cmd("player.close", opened[0]));
+        cmd("player.open", path);
+        cmd("player.open", path);
+        assertEquals("0", cmd("player.closeAll"));
     }
 
     @Test public void biometricAvailability() {
@@ -563,6 +612,9 @@ public class NimHarnessTest {
         assertNotEquals("baReady", cmd("bio.avail"));
         ((org.robolectric.shadows.ShadowBiometricManager) Shadow.extract(bm)).setCanAuthenticate(true);
         assertEquals("baReady", cmd("bio.avail"));
+        String id = cmd("bio.auth", "Unlock", "sub", "Cancel");
+        assertFalse(id, id.startsWith("ERR"));
+        assertFalse(Biometric.isRunning(Integer.parseInt(id)));     // cancelled by the command
     }
 
     @Test public void downloads() {

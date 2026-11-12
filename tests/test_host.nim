@@ -1,6 +1,6 @@
 ## Druid on the desktop: no JVM. Checks the parts that are pure Nim (event
-## decoding, UTF-16, JNI signatures) and that every service answers its
-## neutral default instead of failing, so one program builds for both.
+## decoding, UTF-16, JNI signatures, prefs on disk). How the services behave
+## on the desktop -- the simulated device -- is tests/test_simulation.nim.
 
 import std/[unittest, options, os, math, json, algorithm]
 import ../src/druid
@@ -101,21 +101,34 @@ suite "events":
     check connectivity().latest.get.networkType == ntCellular
     check connectivity().latest.get.metered
 
-suite "desktop stand-ins":
+suite "event state":
   setup: resetEventState()
 
-  test "permissions are granted, through the same event path":
-    let req = permissions().request(apCamera, apLocationFine)
-    check permissions().status(req) == psPending
-    let evs = pollEvents()
-    check evs.len == 1 and evs[0].kind == ekPermission and evs[0].requestId == req.id
-    check permissions().status(req) == psGranted
-    check permissions().results(req).len == 2
-    check permissions().check(apCamera) and permissions().check(pgLocation)
-    let req2 = permissions().request(pgMicrophone)
-    check req2.id != req.id
-    discard pollEvents()
-    check permissions().status(req2) == psGranted
+  test "applyEvent records the latest of each kind":
+    check latestFix().isNone and latestNetwork().isNone and latestReading(5).isNone
+    check permissionResult(3).isNone
+    applyEvent parseEvent(encodeEvent("location", "gps", "1", "2", "NaN", "NaN", "0", "NaN", "NaN"))
+    applyEvent parseEvent(encodeEvent("connectivity", "ethernet", "1", "0"))
+    applyEvent parseEvent(encodeEvent("sensor", "5", "3", "9", "42"))
+    applyEvent parseEvent(encodeEvent("permission", "3", $apCamera, "1"))
+    applyEvent parseEvent(encodeEvent("lifecycle", "paused", "A"))
+    check latestFix().get.longitude == 2
+    check latestNetwork().get.networkType == "ethernet"
+    check latestReading(5).get.values == @[42'f32]
+    check permissionResult(3).get == @[(permission: $apCamera, granted: true)]
+    check lastLifecycleEvent() == "paused"
+
+  test "network type names":
+    for t in NetworkType: check parseNetworkType($t) == t
+    check parseNetworkType("satellite") == ntOther
+
+  test "distance between fixes":
+    let a = LocationFix(latitude: 0, longitude: 0)
+    let b = LocationFix(latitude: 0, longitude: 1)
+    check abs(a.distanceTo(b) - 111_195) < 10
+
+suite "desktop":
+  setup: resetEventState()
 
   test "permission groups":
     check pgLocation.members == @[apLocationFine, apLocationCoarse]
@@ -160,55 +173,27 @@ suite "desktop stand-ins":
     check c.base64Decode("aGVsbG8_Pg") == "hello?>".toBytes
     check c.base64Decode("aGVsbG8/Pg==") == "hello?>".toBytes
     check toHex([0x00'u8, 0xff, 0x1a]) == "00ff1a"
-    expect DruidNotStarted:
-      discard c.sha256("x")
+    check c.sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    expect DruidError:
+      discard c.digest("SHA-999", @[])
 
   test "geometry":
     check haversine(0, 0, 0, 0) == 0
     let paris2london = haversine(48.8566, 2.3522, 51.5074, -0.1278)
     check abs(paris2london - 343_500) < 1500
     check abs(location().distanceBetween(0, 0, 0, 1) - 111_195) < 10
-    let m = display().metrics
-    check m.density == 1 and m.dpi == 160
     let phone = DisplayMetrics(density: 2.625, fontScale: 1.15)
     check abs(phone.dpToPx(16) - 42) < 1e-9
     check abs(phone.pxToDp(42) - 16) < 1e-9
     check abs(phone.spToPx(16) - 48.3) < 1e-4
 
-  test "every service answers without a JVM":
-    check device().apiLevel == 0 and not device().isAndroid and device().model.len > 0
-    check appInfo().versionCode == 0 and not appInfo().hasSystemFeature(featureNfc)
-    check not vibration().hasVibrator
-    vibration().vibrate(10); vibration().pattern([0, 10, 10, 10]); vibration().effect(heClick); vibration().cancel()
-    expect ValueError: vibration().vibrate(10, amplitude = 0)
-    expect ValueError: vibration().pattern([0, 10], repeat = 2)
-    notifications().createChannel("c", "C")
-    check notifications().areEnabled and notifications().active.len == 0
-    let id = notifications().notify("t", "x")
-    check notifications().notify("t", "y") == id + 1
-    check connectivity().isConnected and connectivity().networkType == ntOther
-    check power().batteryLevel == -1 and power().batteryTemperature.isNaN
-    let lock = power().acquireWakeLock("t")
-    check not power().isHeld(lock)
-    check dirExists(storage().filesDir) and dirExists(storage().cacheDir)
-    check storage().freeBytes("/") == -1
-    check audio().maxVolume(asMusic) == 0 and audio().ringerMode == rmNormal
-    check audio().outputHints == (0, 0)
-    check location().providers.len == 0 and location().lastKnown.isNone
-    location().start(); location().stopAll()
-    check not sensors().has(stAccelerometer) and not sensors().start(stAccelerometer)
-    check sensors().info(stLight).isNone
-    check not keyboard().show() and not keyboard().isActive
-    check not intents().shareText("x") and not intents().canOpen("https://x")
-    check not telephony().isSupported and telephony().simState == ssUnknown
-    check not bluetooth().isEnabled and not nfc().isSupported
-    check camera().ids.len == 0 and camera().find(cfBack) == ""
-    check memory().info.totalBytes == 0
-    check biometric().availability == baNoHardware
-    check player().count == 0
+  test "the NDK answers nothing off Android":
     check systemProperty("ro.build.version.sdk") == "" and ndkApiLevel() == 0
 
   test "logging goes to stderr off Android":
     logInfo "hello ", 42
+    logDebug "debug ", 1
+    logWarn "warn ", 2
+    logError "error ", 3
     log(llVerbose, "dropped below minLevel")
     check concatArgs(["a", "b"]) == "ab"

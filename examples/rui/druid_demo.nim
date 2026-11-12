@@ -17,8 +17,7 @@ proc infoLines*(): seq[string] =
   let d = device()
   let m = display().metrics
   let battery = power().batteryLevel
-  @[(if d.isAndroid: d.manufacturer & " " & d.model & ", Android " & d.release & " (API " & $d.apiLevel & ")"
-     else: "Desktop (" & d.model & "): Druid stand-ins"),
+  @[d.manufacturer & " " & d.model & ", Android " & d.release & " (API " & $d.apiLevel & ")",
     $m.widthPx & " x " & $m.heightPx & " px at " & $m.dpi & " dpi",
     "Battery " & (if battery < 0: "unknown" else: $battery & "%") &
       ", network " & $connectivity().networkType]
@@ -73,7 +72,7 @@ when isMainModule:
     logInfo "druid_demo: main started"
     state:
       status: string = "Tap a button"
-    let app = newApp("Druid demo", 360, 800)
+    let app = newDruidApp("Druid demo")
     app.wireDemo(status)
     app.setRootWidget(druidDemo(status))
     app.run()

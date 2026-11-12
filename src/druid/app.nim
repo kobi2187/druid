@@ -6,7 +6,7 @@
 ## ```
 
 import std/[os]
-import bridge
+import bridge, simulator
 
 type AppInfo* = object
 proc appInfo*(): AppInfo = discard
@@ -40,7 +40,8 @@ proc lastUpdateTime*(_: AppInfo): int64 = bridged(0'i64): callStatic(int64, "App
 proc isDebuggable*(_: AppInfo): bool = bridged(not defined(release)): callStatic(bool, "AppInfo", "isDebuggable")
 proc hasSystemFeature*(_: AppInfo, feature: string): bool =
   ## PackageManager.hasSystemFeature: "android.hardware.camera.any", ... (the `feature*` constants).
-  bridged(false): callStatic(bool, "AppInfo", "hasSystemFeature", feature)
+  bridged(feature in simulator().profile.features):
+    callStatic(bool, "AppInfo", "hasSystemFeature", feature)
 proc isInstalled*(_: AppInfo, packageName: string): bool =
   ## Whether another app is installed (Android 11+ needs it in the manifest's <queries>).
   bridged(false): callStatic(bool, "AppInfo", "isInstalled", packageName)

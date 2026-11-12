@@ -11,6 +11,7 @@
 
 import std/[strutils, options, tables, sequtils, typedthreads]
 import ../../src/druid
+import ../conformance
 
 type Cmd = proc(a: seq[string]): string
 
@@ -38,13 +39,14 @@ cmd "pending": $pendingEvents()
 cmd "device":
   let d = device()
   j(d.apiLevel, d.release, d.manufacturer, d.model, b(d.isAndroid), d.locale, d.timeZone,
-    d.abis.join(","), b(d.isNightMode), d.lifecycleState)
+    d.abis.join(","), b(d.isNightMode), d.lifecycleState, d.brand, d.codename, b(d.isEmulator))
 cmd "ndk": j(systemProperty("ro.build.version.sdk"), ndkApiLevel())
 cmd "app":
   let p = appInfo()
   j(p.packageName, p.versionName, p.versionCode, p.targetSdk, p.label,
     b(p.hasSystemFeature(a[0])), b(p.isInstalled(a[1])), b(p.isDebuggable))
 cmd "app.permissions": appInfo().requestedPermissions.join(",")
+cmd "app.times": j(appInfo().firstInstallTime, appInfo().lastUpdateTime)
 cmd "lifecycle": lastLifecycleEvent()
 
 # ---- permissions ----
@@ -58,6 +60,9 @@ cmd "perm.status":
   let s = permissions().status(req)
   j($s, permissions().results(req).mapIt(it.permission & "=" & b(it.granted)).join(","))
 cmd "perm.rationale": b(permissions().shouldShowRationale(permOf(a[0])))
+cmd "perm.settings":
+  permissions().openSettings()
+  "ok"
 
 # ---- clipboard ----
 cmd "clip.set":
@@ -134,7 +139,8 @@ cmd "power.unlock":
 # ---- storage ----
 cmd "storage":
   let s = storage()
-  j(s.filesDir, s.cacheDir, s.noBackupDir, s.externalFilesDir("Pictures"), s.externalState, s.dataDir)
+  j(s.filesDir, s.cacheDir, s.noBackupDir, s.externalFilesDir("Pictures"), s.externalState, s.dataDir,
+    s.externalCacheDir)
 cmd "storage.space": j(storage().freeBytes(a[0]), storage().totalBytes(a[0]))
 cmd "storage.write":
   writeFile(storage().filesDir & "/" & a[0], a[1])
@@ -159,6 +165,9 @@ cmd "audio.ringer":
 cmd "audio.mute":
   audio().setMicrophoneMute(a[0] == "1")
   b(audio().isMicrophoneMute)
+cmd "audio.adjust":
+  audio().adjustVolume(parseEnum[AudioStream](a[0]), parseEnum[VolumeDirection](a[1]), showUi = false)
+  j(audio().volume(parseEnum[AudioStream](a[0])), b(audio().isSpeakerphoneOn))
 cmd "audio.hints":
   let h = audio().outputHints
   j(h.sampleRate, h.framesPerBuffer)
@@ -209,6 +218,7 @@ cmd "intent.sms": b(intents().sendSms(a[0], a[1]))
 cmd "intent.map": b(intents().openMap(a[0]))
 cmd "intent.appSettings": b(intents().openAppSettings())
 cmd "intent.canOpen": b(intents().canOpen(a[0]))
+cmd "intent.settings": b(intents().openSettings(a[0]))
 cmd "intent.toast":
   intents().toast(a[0], a[1] == "1")
   "ok"
@@ -232,13 +242,17 @@ cmd "prefs.remove":
 cmd "crypto":
   let c = crypto()
   j(c.sha256Hex(a[0]), c.hmacSha256(a[1], a[0]).toHex, c.digest("MD5", a[0].toBytes).toHex,
-    c.randomBytes(24).len, c.uuid.len)
+    c.randomBytes(24).len, c.uuid.len, c.sha512(a[0]).toHex,
+    c.hmac("HmacSHA512", a[1].toBytes, a[0].toBytes).toHex)
 
 # ---- hardware ----
 cmd "tel":
   let t = telephony()
-  j(b(t.isSupported), $t.phoneType, $t.simState, t.operatorName, t.networkCountryIso, b(t.isRoaming))
+  j(b(t.isSupported), $t.phoneType, $t.simState, t.operatorName, t.networkCountryIso, b(t.isRoaming),
+    t.simOperatorName, t.simCountryIso)
 cmd "bt": j(b(bluetooth().isSupported), b(bluetooth().isEnabled), b(bluetooth().hasLowEnergy))
+cmd "bt.enable": b(bluetooth().requestEnable())
+cmd "nfc.settings": b(nfc().openSettings())
 cmd "nfc": j(b(nfc().isSupported), b(nfc().isEnabled))
 cmd "cam":
   let c = camera()
@@ -256,12 +270,24 @@ cmd "player.play":
   let t = Track(id: parseInt(a[0]))
   player().play(t)
   j(b(player().isPlaying(t)), player().duration(t))
+cmd "player.control":
+  let t = Track(id: parseInt(a[0]))
+  player().seek(t, parseInt(a[1]))
+  player().pause(t)
+  j(b(player().isPlaying(t)), player().position(t))
+cmd "player.closeAll":
+  player().closeAll()
+  $player().count
 cmd "player.close":
   player().close(Track(id: parseInt(a[0])))
   $player().count
 cmd "player.events":
   pollEvents().filterIt(it.kind == ekPlayer).mapIt(it.playerEvent & ":" & $it.playerDetail).join(",")
 cmd "bio.avail": $biometric().availability
+cmd "bio.auth":
+  let r = biometric().authenticate(a[0], a[1], a[2])
+  biometric().cancel(r)
+  $r.id
 cmd "dl.enqueue":
   let d = downloads().enqueue(a[0], a[1], a[2])
   let s = downloads().status(d)
@@ -283,6 +309,19 @@ cmd "wake.install":
 cmd "wake.count": $wakeCount
 
 # ---- threads ----
+var detachedAnswer: int
+proc detachingWorker() {.thread.} =
+  # Attached by the first call, detached explicitly; the next call attaches again.
+  {.cast(gcsafe).}:
+    discard currentEnv()
+    detachThread()
+    detachedAnswer = device().apiLevel
+    detachThread()
+cmd "thread.detach":
+  var t: Thread[void]
+  createThread(t, detachingWorker)
+  joinThread(t)
+  $detachedAnswer
 var threadAnswer: int
 proc worker() {.thread.} =
   # A thread Java never saw: Druid attaches it, and detaches it when it exits.
@@ -292,6 +331,14 @@ cmd "thread.call":
   createThread(t, worker)
   joinThread(t)
   $threadAnswer
+
+# ---- conformance (tests/conformance.nim): the world changed by dev.druid.Arranger ----
+cmd "conf.list":
+  var names: seq[string]
+  for n in scenarios.keys: names.add n
+  names.join(",")
+cmd "conf":
+  runScenario(a[0], proc(what: string) = callStatic(void, "Arranger", "arrange", what))
 
 # ---- errors ----
 cmd "err.java":

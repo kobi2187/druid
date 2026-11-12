@@ -1,0 +1,748 @@
+diff --git a/packages/rui/src/app.nim b/packages/rui/src/app.nim
+index 21f7c9c..77cb8af 100644
+--- a/packages/rui/src/app.nim
++++ b/packages/rui/src/app.nim
+@@ -17,6 +17,7 @@ export visual
+ import preferences_file
+ export preferences_file
+ import system_scheme
++import android_host           # displayDpi: the phone's density (pixel_density.nim)
+ export system_scheme
+ from rui_widgets import HelpOverlay, newHelpOverlay, hints, `hints=`, FocusRing, newFocusRing,
+   Toast, newToast, MenuBar, findMenuBar, openFromKeyboard,
+diff --git a/packages/rui/src/app_compositing.nim b/packages/rui/src/app_compositing.nim
+index 4025655..37fa386 100644
+--- a/packages/rui/src/app_compositing.nim
++++ b/packages/rui/src/app_compositing.nim
+@@ -13,8 +13,8 @@ proc drawScriptingIndicator() =
+   const
+     scriptColor = Color(r: 255, g: 165, b: 0, a: 200)
+     indicatorText = "SCRIPTING"
+-  let screenWidth = getScreenWidth()
+-  let screenHeight = getScreenHeight()
++  let screenWidth = int32(logicalScreenWidth())
++  let screenHeight = int32(logicalScreenHeight())
+ 
+   for inset in 0'i32 .. 3'i32:
+     drawRectangleLines(inset, inset, screenWidth - inset * 2,
+@@ -68,10 +68,11 @@ proc renderFrame(app: App) =
+   ## whatever the window itself draws over it.
+   perfTime(phScreen):
+     beginDrawing()
+-    app.drawWindowBackground()
+-    app.compositeRoot()
+-    if app.beingScripted:
+-      drawScriptingIndicator()
++    scaledDrawing:                  # logical pixels onto the physical screen
++      app.drawWindowBackground()
++      app.compositeRoot()
++      if app.beingScripted:
++        drawScriptingIndicator()
+   if app.probe != nil and app.probe.enabled:
+     perfTime(phReadback):
+       app.probe.capture()       # exactly what is about to be presented
+diff --git a/packages/rui/src/app_layout.nim b/packages/rui/src/app_layout.nim
+index 2952e39..13edd2a 100644
+--- a/packages/rui/src/app_layout.nim
++++ b/packages/rui/src/app_layout.nim
+@@ -70,7 +70,7 @@ proc refreshLayout*(app: App) =
+   app.tree.registerWidgetRecursive(app.tree.root)
+ 
+ proc windowArea(app: App): Rect =
+-  Rect(x: 0, y: 0, width: getScreenWidth().float32, height: getScreenHeight().float32)
++  Rect(x: 0, y: 0, width: logicalScreenWidth(), height: logicalScreenHeight())
+ 
+ proc drawWindowBackground(app: App) =
+   ## What is behind the widget tree. The window surround follows the active
+@@ -98,12 +98,13 @@ proc takePicture(app: App, modal: Widget) =
+   ## Needs a window; without one the modal falls back to a plain tint.
+   if not isWindowReady() or app.tree.root.cachedTexture.isNone:
+     return
+-  var screen = loadRenderTexture(getScreenWidth(), getScreenHeight())
++  var screen = loadRenderTexture(getScreenWidth(), getScreenHeight())   # physical
+   beginTextureMode(screen)
+-  app.drawWindowBackground()
+-  compositingTextures:
+-    drawRenderTexture(app.tree.root.cachedTexture.get(),
+-                      app.tree.root.bounds.x, app.tree.root.bounds.y)
++  scaledDrawing:
++    app.drawWindowBackground()
++    compositingTextures:
++      drawRenderTexture(app.tree.root.cachedTexture.get(),
++                        app.tree.root.bounds.x, app.tree.root.bounds.y)
+   endTextureMode()
+   setBackdrop(modal, makeBackdrop(screen, currentTheme, backdropPainterFor(modal)))
+   # It is drawn inside the modal's texture: repaint that with it.
+@@ -120,8 +121,8 @@ proc updateLayoutAndRender(app: App): bool =
+     app.syncFocusRings()
+   # What the window shows: anything wholly outside it is not painted until it
+   # scrolls into view.
+-  renderView = some(Rect(x: 0, y: 0, width: getScreenWidth().float32,
+-                         height: getScreenHeight().float32))
++  renderView = some(Rect(x: 0, y: 0, width: logicalScreenWidth(),
++                         height: logicalScreenHeight()))
+   let top = frozenBy(app.tree.root)
+   if top != nil:
+     # Frozen behind a modal: the page is painted only to be pictured, and the
+diff --git a/packages/rui/src/app_loop.nim b/packages/rui/src/app_loop.nim
+index b15d2f0..02385e9 100644
+--- a/packages/rui/src/app_loop.nim
++++ b/packages/rui/src/app_loop.nim
+@@ -56,6 +56,14 @@ proc quietRaylibLog() =
+       else: TraceLogLevel.Info
+   setTraceLogLevel(level)
+ 
++proc chosenPixelScale*(): float32 =
++  ## The phone's density on Android (dpi / 160); RUI_SCALE on the desktop, 1 by default.
++  when defined(android):
++    max(1'f32, displayDpi().float32 / 160)
++  else:
++    try: max(0.25'f32, parseFloat(getEnv("RUI_SCALE", "1")).float32)
++    except ValueError: 1'f32
++
+ proc openWindow(app: App) =
+   quietRaylibLog()
+   when defined(ruiShaped):
+@@ -64,7 +72,19 @@ proc openWindow(app: App) =
+       # and a see-through framebuffer where a compositor can show one).
+       app.shaped = prepareShapedWindow(app.shapeSoftEdges, app.shapeClickThrough,
+                                        backdrop = currentTheme.canvasColor())
+-  initWindow(app.window.width.int32, app.window.height.int32, app.window.title)
++  # Physical pixels per logical one (pixel_density.nim): the phone's density on
++  # Android, RUI_SCALE on the desktop (to see a phone's layout at its sharpness).
++  pixelScale = chosenPixelScale()
++  when defined(android):
++    # The display's own size: drawn at full resolution, not a small window
++    # stretched to fit (which is what made text soft). The layout fills it in
++    # logical pixels.
++    initWindow(0, 0, app.window.title)
++    app.window.width = int(logicalScreenWidth())
++    app.window.height = int(logicalScreenHeight())
++  else:
++    initWindow(physicalExtent(app.window.width.float32),
++               physicalExtent(app.window.height.float32), app.window.title)
+   if app.pendingWindowPos.isSome:
+     let (x, y) = app.pendingWindowPos.get
+     setWindowPosition(x.int32, y.int32)
+@@ -79,11 +99,13 @@ proc openWindow(app: App) =
+     return
+   setWindowState(flags(WindowResizable))
+   if app.window.minWidth > 0 and app.window.minHeight > 0:
+-    setWindowMinSize(app.window.minWidth.int32, app.window.minHeight.int32)
++    setWindowMinSize(physicalExtent(app.window.minWidth.float32),
++                     physicalExtent(app.window.minHeight.float32))
+ 
+ proc announce(app: App) =
+   echo "RUI Application Started"
+-  echo "  Window: ", app.window.width, "x", app.window.height
++  echo "  Window: ", app.window.width, "x", app.window.height,
++       (if pixelScale != 1: " at " & $pixelScale & "x" else: "")
+   echo "  Target FPS: ", app.window.fps
+   echo "  Resizable: ", app.window.resizable
+   if app.window.resizable:
+diff --git a/packages/rui/src/app_setup.nim b/packages/rui/src/app_setup.nim
+index 4a1b3da..743c734 100644
+--- a/packages/rui/src/app_setup.nim
++++ b/packages/rui/src/app_setup.nim
+@@ -233,14 +233,16 @@ proc enableScripting*(app: App, scriptDir: string) =
+       app.answerInspect(selector, what)
+     app.probe = newVisualProbe(scriptDir / "shots")
+     app.probe.rectOf = proc(selector: string): Option[tuple[x, y, w, h: int]] =
++      # The probe reads the framebuffer: physical pixels (pixel_density.nim).
+       if selector == "*":
+         return some((0, 0, getScreenWidth().int, getScreenHeight().int))
+       let widget = app.tree.findWidget(selector)
+       if widget.isNone: return none(tuple[x, y, w, h: int])
+       let r = widget.get().visibleRect
+-      some((r.x.int, r.y.int, r.width.int, r.height.int))
++      some((int(r.x * pixelScale), int(r.y * pixelScale),
++            int(r.width * pixelScale), int(r.height * pixelScale)))
+     app.probe.resizeTo = proc(width, height: int) =
+-      setWindowSize(width.int32, height.int32)
++      setWindowSize(physicalExtent(width.float32), physicalExtent(height.float32))
+       if app.tree.root != nil:
+         app.tree.root.layoutDirty = true
+         app.tree.root.isDirty = true
+@@ -333,7 +335,7 @@ proc currentWidget*(app: App): Widget =
+   ## Get the widget currently under the mouse cursor
+   ## Returns nil if no widget is under the cursor
+   ## Queries hitTestSystem with current mouse position
+-  let mousePos = getMousePosition()
++  let mousePos = logicalMousePosition()
+   return app.hitTestSystem.getWidgetAt(mousePos.x, mousePos.y)
+ proc currentFocusedWidget*(app: App): Widget =
+   ## Get the widget that currently has keyboard focus
+@@ -367,8 +369,8 @@ proc printTextCacheStats*(app: App) =
+        s.measureHits, " hits / ", s.measureMisses, " misses"
+ 
+ proc setWindowSize*(app: App, width, height: int) =
+-  ## Programmatically resize the window
+-  setWindowSize(width.int32, height.int32)
++  ## Programmatically resize the window (logical pixels).
++  setWindowSize(physicalExtent(width.float32), physicalExtent(height.float32))
+   app.window.width = width
+   app.window.height = height
+   app.tree.anyDirty = true  # Trigger relayout
+@@ -489,7 +491,7 @@ when defined(ruiShaped):
+   proc dragByBackground(app: App) =
+     ## A press on the background -- nothing that takes a click itself -- and a
+     ## drag move the window: it has no title bar to be moved by.
+-    let m = getMousePosition()
++    let m = logicalMousePosition()
+     var allow = false
+     if isMouseButtonPressed(MouseButton.Left):
+       var hit = overlayAt(m.x, m.y)
+diff --git a/packages/rui/src/event_source.nim b/packages/rui/src/event_source.nim
+index 70c5cd6..c662c5e 100644
+--- a/packages/rui/src/event_source.nim
++++ b/packages/rui/src/event_source.nim
+@@ -62,7 +62,7 @@ method poll*(source: ListEventSource): seq[GuiEvent] =
+ proc motionEvents(dest: var seq[GuiEvent], at: Point) =
+   ## Movement and wheel are epNormal because the event manager coalesces them:
+   ## a drag produces one event per frame however many the OS delivered.
+-  let delta = getMouseDelta()
++  let delta = logicalMouseDelta()
+   if delta.x != 0 or delta.y != 0:
+     dest.add(GuiEvent(kind: evMouseMove, priority: epNormal,
+                       timestamp: getMonoTime(), mousePos: at))
+@@ -125,7 +125,9 @@ when glfwHooks:
+     if button == 0 and action in [0.cint, 1.cint]:      # GLFW_MOUSE_BUTTON_LEFT; release / press
+       var x, y: cdouble
+       glfwGetCursorPos(window, addr x, addr y)
+-      buttonQueue.add (action == 1, Point(x: x.float32, y: y.float32), getMonoTime())
++      # Window pixels -> logical ones (pixel_density.nim), like every other position.
++      buttonQueue.add (action == 1, Point(x: x.float32 / pixelScale, y: y.float32 / pixelScale),
++                       getMonoTime())
+ 
+ proc hookMouseButtons() =
+   when glfwHooks:
+@@ -164,7 +166,7 @@ proc dropEvents(dest: var seq[GuiEvent], at: Point) =
+                       paths: getDroppedFiles()))
+ 
+ proc pointerEvents(dest: var seq[GuiEvent]) =
+-  let mousePos = getMousePosition()
++  let mousePos = logicalMousePosition()     # logical pixels (pixel_density.nim)
+   let at = Point(x: mousePos.x, y: mousePos.y)
+   motionEvents(dest, at)
+   buttonEvents(dest, at)
+@@ -196,8 +198,8 @@ proc windowEvents(dest: var seq[GuiEvent]) =
+   if isWindowResized():
+     dest.add(GuiEvent(kind: evWindowResize, priority: epNormal,
+                       timestamp: getMonoTime(),
+-                      windowSize: Size(width: float32(getScreenWidth()),
+-                                       height: float32(getScreenHeight()))))
++                      windowSize: Size(width: logicalScreenWidth(),
++                                       height: logicalScreenHeight())))
+ 
+ proc heldMods(): set[KeyMod] =
+   ## The modifiers down right now, read once per poll.
+@@ -214,7 +216,7 @@ proc touchEvents(dest: var seq[GuiEvent], known: var Table[int, rui_core.Point])
+   if n <= 1 and known.len == 0: return
+   var frame: TouchFrame
+   for i in 0 ..< n:
+-    let p = getTouchPosition(i.int32)
++    let p = logicalTouchPosition(i.int32)
+     frame.add (id: getTouchPointId(i.int32).int, at: rui_core.Point(x: p.x, y: p.y))
+   dest.add touchDiff(known, frame)
+ 
+diff --git a/packages/rui_core/src/main_loop.nim b/packages/rui_core/src/main_loop.nim
+index 0b258c5..ba8ae58 100644
+--- a/packages/rui_core/src/main_loop.nim
++++ b/packages/rui_core/src/main_loop.nim
+@@ -9,7 +9,7 @@
+ ## - Parent composites children's textures into its own
+ ## - Cached Texture2D is reused when widget is clean
+ 
+-import types, perf
++import types, perf, pixel_density
+ import std/[algorithm, math, options, hashes]
+ import raylib
+ import rlgl
+@@ -49,9 +49,11 @@ proc inkPadFor(widget: Widget): float32 =
+ proc createWidgetTexture*(widget: Widget): RenderTexture2D =
+   ## Create a render texture for the widget
+   ## Size is based on widget's bounds (and a subpixel widget's margin)
++  # Logical size as before, then physical: the texture holds the widget at the
++  # screen's resolution (pixel_density.nim).
+   let pad = int32(widget.texturePad * 2)
+-  let width = max(1, widget.bounds.width.int32) + pad
+-  let height = max(1, widget.bounds.height.int32) + pad
++  let width = physicalExtent(float32(max(1, widget.bounds.width.int32) + pad))
++  let height = physicalExtent(float32(max(1, widget.bounds.height.int32) + pad))
+   # Colour only. raylib's own loadRenderTexture also attaches a 32-bit depth
+   # renderbuffer, which a 2D widget never reads: about as much memory again,
+   # per widget, for nothing (10,000 widgets held 341 MB of colour alone).
+@@ -143,12 +145,16 @@ proc drawRenderTexture*(tex: RenderTexture2D, x, y: float32, snap = true) =
+   ## half pixel (a centred child, say), and a texture blitted there is
+   ## resampled, which smears its text into a doubled ghost. `snap = false`
+   ## keeps the exact position, for a `subpixel` widget gliding smoothly.
++  ##
++  ## The texture is physical pixels (pixel_density.nim) and (x, y) logical: it is
++  ## drawn at its logical size, which the scale in force maps back to 1:1.
+   let w = tex.texture.width.float32
+   let h = tex.texture.height.float32
+   drawTexture(tex.texture,
+               Rectangle(x: 0, y: 0, width: w, height: -h),
+-              (if snap: Vector2(x: round(x), y: round(y)) else: Vector2(x: x, y: y)),
+-              White)
++              Rectangle(x: (if snap: snapLogical(x) else: x), y: (if snap: snapLogical(y) else: y),
++                        width: w / pixelScale, height: h / pixelScale),
++              Vector2(x: 0, y: 0), 0.0, White)
+ 
+ proc intersect*(a, b: Rect): Rect =
+   ## The overlapping part of two rectangles, or a zero-sized rect when they do
+@@ -167,15 +173,17 @@ proc blitPart(tex: RenderTexture2D, dest, clip: Rect, tint: Color) =
+     return
+   let texH = tex.texture.height.float32
+   # The source rectangle, in upright coordinates: how far into the texture the
+-  # visible part starts.
+-  let sx = visible.x - dest.x
+-  let uy = visible.y - dest.y
++  # visible part starts -- in texels, which are physical pixels.
++  let s = pixelScale
++  let sx = (visible.x - dest.x) * s
++  let uy = (visible.y - dest.y) * s
++  let sh = visible.height * s
+   # Then flipped. With a negative source height raylib samples stored rows
+   # [sy, sy + sh] and turns them over, and the framebuffer stores them
+   # bottom-up -- so the upright rows [uy, uy + sh] live at sy = texH - uy - sh.
+-  let sy = texH - uy - visible.height
++  let sy = texH - uy - sh
+   drawTexture(tex.texture,
+-              Rectangle(x: sx, y: sy, width: visible.width, height: -visible.height),
++              Rectangle(x: sx, y: sy, width: visible.width * s, height: -sh),
+               Rectangle(x: visible.x, y: visible.y,
+                         width: visible.width, height: visible.height),
+               Vector2(x: 0, y: 0), 0.0, tint)
+@@ -203,15 +211,15 @@ proc drawRenderTexturePart*(tex: RenderTexture2D, dest: Rect, clip: Rect, soft =
+   ## With `soft`, a clip edge between two pixels is not rounded: the pixels it
+   ## cuts through are drawn in proportion to how much of them is inside, so a
+   ## clip that moves by a fraction of a pixel moves visibly (Clip).
+-  let dest = Rect(x: round(dest.x), y: round(dest.y),
+-                  width: tex.texture.width.float32,
+-                  height: tex.texture.height.float32)
++  let dest = Rect(x: snapLogical(dest.x), y: snapLogical(dest.y),
++                  width: tex.texture.width.float32 / pixelScale,
++                  height: tex.texture.height.float32 / pixelScale)
+   if not soft:
+-    let clipL = round(clip.x)
+-    let clipT = round(clip.y)
++    let clipL = snapLogical(clip.x)
++    let clipT = snapLogical(clip.y)
+     blitPart(tex, dest, Rect(x: clipL, y: clipT,
+-                             width: round(clip.x + clip.width) - clipL,
+-                             height: round(clip.y + clip.height) - clipT), White)
++                             width: snapLogical(clip.x + clip.width) - clipL,
++                             height: snapLogical(clip.y + clip.height) - clipT), White)
+     return
+   # The whole pixels inside, at full strength; then each cut row and column.
+   let l = clip.x
+@@ -523,8 +531,10 @@ proc paintSignature(widget: Widget): int =
+ proc textureFits(widget: Widget): bool =
+   let pad = int32(widget.texturePad * 2)
+   widget.cachedTexture.isSome and
+-    widget.cachedTexture.get.texture.width == max(1, widget.bounds.width.int32) + pad and
+-    widget.cachedTexture.get.texture.height == max(1, widget.bounds.height.int32) + pad
++    widget.cachedTexture.get.texture.width ==
++      physicalExtent(float32(max(1, widget.bounds.width.int32) + pad)) and
++    widget.cachedTexture.get.texture.height ==
++      physicalExtent(float32(max(1, widget.bounds.height.int32) + pad))
+ 
+ proc ensureTextureFor(widget: Widget) =
+   ## Give `widget` a render texture of its current size, keeping the one it has
+@@ -620,6 +630,10 @@ proc renderToTexture(widget: Widget, changed: seq[Rect], partialOk: bool) =
+     echo "PAINT ", widget.getTypeName(), " ", widget.stringId, " own=", widget.ownDirty, " regions=", regions.len, " ", passes, " bounds=", widget.bounds
+ 
+   beginTextureMode(widget.cachedTexture.get())
++  # Widgets draw in logical pixels; the texture is physical (pixel_density.nim).
++  if pixelScale != 1:
++    rlgl.pushMatrix()
++    rlgl.scalef(pixelScale, pixelScale, 1)
+   let originalX = widget.bounds.x
+   let originalY = widget.bounds.y
+   for repainted in passes:
+@@ -628,10 +642,12 @@ proc renderToTexture(widget: Widget, changed: seq[Rect], partialOk: bool) =
+       # scissor boxes count from the bottom of the framebuffer, textures included
+       rlgl.drawRenderBatchActive()
+       rlgl.enableScissorTest()
+-      rlgl.scissor(repainted.x.int32,
++      # (in texels: physical pixels)
++      let ps = pixelScale
++      rlgl.scissor(int32(floor(repainted.x * ps)),
+                    int32(widget.cachedTexture.get.texture.height.float32 -
+-                         (repainted.y + repainted.height)),
+-                   repainted.width.int32, repainted.height.int32)
++                         ceil((repainted.y + repainted.height) * ps)),
++                   int32(ceil(repainted.width * ps)), int32(ceil(repainted.height * ps)))
+     clearBackground(Color(r: 0, g: 0, b: 0, a: 0))   # Transparent background
+ 
+     # `render` draws at widget.bounds, and the texture's origin is the widget's
+@@ -656,6 +672,9 @@ proc renderToTexture(widget: Widget, changed: seq[Rect], partialOk: bool) =
+     if region.isSome:
+       rlgl.drawRenderBatchActive()
+       rlgl.disableScissorTest()
++  if pixelScale != 1:
++    rlgl.drawRenderBatchActive()
++    rlgl.popMatrix()
+   endTextureMode()
+   widget.isDirty = false
+   widget.paintPass = renderPassNumber
+diff --git a/packages/rui_core/src/pixel_density.nim b/packages/rui_core/src/pixel_density.nim
+new file mode 100644
+index 0000000..098f174
+--- /dev/null
++++ b/packages/rui_core/src/pixel_density.nim
+@@ -0,0 +1,56 @@
++## Physical pixels per logical pixel: what makes RUI sharp on a phone.
++##
++## Layout, widget bounds, events and font sizes are in logical pixels (Android's
++## dp). The window, the widget textures and the glyph rasters are in physical
++## pixels. With `pixelScale` 2.625 (a 420 dpi phone), a 360-wide layout fills a
++## 945-pixel screen with every edge and glyph drawn at full resolution -- not a
++## 360-pixel picture stretched to fit, which is what makes text soft.
++##
++## The App sets it when it opens the window: on Android from the display's
++## density (dpi / 160), on the desktop from `RUI_SCALE` (default 1), so a
++## desktop window can show a phone's layout at the phone's sharpness.
++
++import std/math
++import raylib, rlgl
++
++var pixelScale*: float32 = 1
++  ## Physical pixels per logical pixel.
++
++proc toPhysical*(v: float32): float32 {.inline.} = v * pixelScale
++proc toLogical*(v: float32): float32 {.inline.} = v / pixelScale
++
++proc snapLogical*(v: float32): float32 {.inline.} =
++  ## `v` moved onto the nearest physical pixel, still in logical units.
++  round(v * pixelScale) / pixelScale
++
++proc physicalExtent*(logical: float32): int32 {.inline.} =
++  ## How many physical pixels a logical length covers (at least one).
++  max(1'i32, int32(round(logical * pixelScale)))
++
++proc logicalScreenWidth*(): float32 = getScreenWidth().float32 / pixelScale
++proc logicalScreenHeight*(): float32 = getScreenHeight().float32 / pixelScale
++  ## The window's size in logical pixels: what the layout fills.
++
++proc logicalMousePosition*(): Vector2 =
++  let p = getMousePosition()
++  Vector2(x: p.x / pixelScale, y: p.y / pixelScale)
++
++proc logicalTouchPosition*(index: int32): Vector2 =
++  let p = getTouchPosition(index)
++  Vector2(x: p.x / pixelScale, y: p.y / pixelScale)
++
++proc logicalMouseDelta*(): Vector2 =
++  let p = getMouseDelta()
++  Vector2(x: p.x / pixelScale, y: p.y / pixelScale)
++
++template scaledDrawing*(body: untyped) =
++  ## Draw `body` in logical coordinates onto a physical target (the screen or a
++  ## widget texture): everything is scaled by `pixelScale` on the way.
++  if pixelScale == 1:
++    body
++  else:
++    rlgl.pushMatrix()
++    rlgl.scalef(pixelScale, pixelScale, 1)
++    body
++    rlgl.drawRenderBatchActive()
++    rlgl.popMatrix()
+diff --git a/packages/rui_core/src/rui_core.nim b/packages/rui_core/src/rui_core.nim
+index 65ae2ec..ffb2f96 100644
+--- a/packages/rui_core/src/rui_core.nim
++++ b/packages/rui_core/src/rui_core.nim
+@@ -11,6 +11,7 @@ import background;         export background
+ import mailbox;            export mailbox
+ import store;              export store
+ import main_loop;          export main_loop
++import pixel_density;      export pixel_density
+ import widget_dsl;         export widget_dsl
+ import widget_dsl_helpers; export widget_dsl_helpers
+ import ui_tree;           export ui_tree
+diff --git a/packages/rui_drawing/src/pango_text.nim b/packages/rui_drawing/src/pango_text.nim
+index bdb98c5..35fb2d6 100644
+--- a/packages/rui_drawing/src/pango_text.nim
++++ b/packages/rui_drawing/src/pango_text.nim
+@@ -36,11 +36,13 @@
+ ##    darkens every partially transparent pixel.
+ 
+ import std/[tables, hashes, math, unicode, options]
++import std/strutils except splitWhitespace, strip, align
+ import std/times as stdtimes  # raylib also exports stdtimes.getTime()
+ import raylib
+ import text_types
+ import text_engine
+ import perf
++import pixel_density
+ import std/monotimes
+ 
+ export text_types
+@@ -53,6 +55,7 @@ type
+     wrapWidth: int32   ## -1 for "no wrapping"
+     markup: bool
+     dir: TextDir
++    scale: float32     ## pixelScale it was rasterised at
+ 
+   CachedGlyphs = object
+     texture: Texture2D
+@@ -74,6 +77,7 @@ proc hash(k: CacheKey): Hash =
+   h = h !& hash(k.font)
+   h = h !& hash(k.wrapWidth)
+   h = h !& hash(k.markup)
++  h = h !& hash(k.scale)
+   !$h
+ 
+ # ---------------------------------------------------------------------------
+@@ -223,10 +227,23 @@ proc evictIfNeeded(newBytes: int) =
+          cacheMemoryBytes + newBytes > maxCacheBytes()):
+     evictOldest()
+ 
++proc scaledFont*(desc: string, scale: float32): string =
++  ## A font description at `scale` times its size: "Roboto Bold 14" at 2.5 is
++  ## "Roboto Bold 35". The size is the last word; without one, Pango's default
++  ## of 10 is assumed.
++  if scale == 1: return desc
++  let words = strutils.splitWhitespace(desc)
++  if words.len > 0:
++    try:
++      let size = parseFloat(words[^1])
++      return words[0 ..< ^1].join(" ") & " " & formatFloat(size * scale, ffDecimal, 3)
++    except ValueError: discard
++  desc & " " & formatFloat(10.0 * scale, ffDecimal, 3)
++
+ proc getGlyphs(text, font: string, wrapWidth: int32,
+                markup: bool, dir = tdAuto): ptr CachedGlyphs =
+   let key = CacheKey(text: text, font: font, wrapWidth: wrapWidth,
+-                     markup: markup, dir: dir)
++                     markup: markup, dir: dir, scale: pixelScale)
+   if key in cache:
+     inc cacheHits
+     perfCount(pcTextHit)
+@@ -235,13 +252,20 @@ proc getGlyphs(text, font: string, wrapWidth: int32,
+ 
+   inc cacheMisses
+   perfCount(pcTextMiss)
+-  let m = measure(text, font, wrapWidth, markup, dir)
++  # Rasterised at the screen's resolution: the font scaled up by pixelScale
++  # (pixel_density.nim), measured again at that size. The texture is physical
++  # pixels; the sizes kept with it are logical.
++  let s = pixelScale
++  let rasterFont = scaledFont(font, s)
++  let rasterWrap = if s == 1 or wrapWidth < 0: wrapWidth
++                   else: int32(round(wrapWidth.float32 * s))
++  let m = measure(text, rasterFont, rasterWrap, markup, dir)
+   let rasterStart = when perfOn: getMonoTime() else: default(MonoTime)
+   let w = max(1'i32, m.width.int32)
+   let h = max(1'i32, m.height.int32)
+ 
+-  let pixels = if markup: engineRasteriseArgb32(text, font, wrapWidth, m)
+-               else: engineRasteriseA8(text, font, wrapWidth, m, dir)
++  let pixels = if markup: engineRasteriseArgb32(text, rasterFont, rasterWrap, m)
++               else: engineRasteriseA8(text, rasterFont, rasterWrap, m, dir)
+ 
+   let bytes = w.int * h.int * 4
+   evictIfNeeded(bytes)
+@@ -251,8 +275,8 @@ proc getGlyphs(text, font: string, wrapWidth: int32,
+   # edges exactly as Pango antialiased them rather than blurring them again.
+   setTextureFilter(tex, TextureFilter.Point)
+ 
+-  cache[key] = CachedGlyphs(texture: tex, width: m.width, height: m.height,
+-                            baseline: m.baseline, lastUsed: stdtimes.getTime(),
++  cache[key] = CachedGlyphs(texture: tex, width: m.width / s, height: m.height / s,
++                            baseline: m.baseline / s, lastUsed: stdtimes.getTime(),
+                             memoryBytes: bytes)
+   cacheMemoryBytes += bytes
+   when perfOn: perfAdd(phTextRaster, (getMonoTime() - rasterStart).inNanoseconds)
+@@ -261,6 +285,16 @@ proc getGlyphs(text, font: string, wrapWidth: int32,
+ # ---------------------------------------------------------------------------
+ # Public drawing API
+ # ---------------------------------------------------------------------------
++proc drawGlyphs(g: ptr CachedGlyphs, x, y: float32, tint: Color) =
++  ## The glyph texture with its top-left at (x, y), one texel per physical
++  ## pixel: at its logical size, on a whole physical pixel.
++  let tw = g.texture.width.float32
++  let th = g.texture.height.float32
++  drawTexture(g.texture, Rectangle(x: 0, y: 0, width: tw, height: th),
++              Rectangle(x: snapLogical(x), y: snapLogical(y),
++                        width: tw / pixelScale, height: th / pixelScale),
++              Vector2(x: 0, y: 0), 0.0, tint)
++
+ proc drawTextPango*(text: string, x, y: float32, font: string,
+                     color: Color, wrapWidth: int32 = -1) =
+   ## Draw `text` with its top-left corner at (x, y).
+@@ -273,7 +307,7 @@ proc drawTextPango*(text: string, x, y: float32, font: string,
+   if text.len == 0:
+     return
+   let g = getGlyphs(text, font, wrapWidth, markup = false)
+-  drawTexture(g.texture, Vector2(x: round(x), y: round(y)), color)
++  drawGlyphs(g, x, y, color)
+ 
+ proc drawTextPangoClipped*(text: string, x, y: float32, font: string,
+                            color: Color, clip: Rectangle, dir = tdAuto) =
+@@ -286,17 +320,20 @@ proc drawTextPangoClipped*(text: string, x, y: float32, font: string,
+   if text.len == 0:
+     return
+   let g = getGlyphs(text, font, -1'i32, markup = false, dir)
+-  let dx = round(x)
+-  let dy = round(y)
++  let dx = snapLogical(x)
++  let dy = snapLogical(y)
++  let gw = g.texture.width.float32 / pixelScale
++  let gh = g.texture.height.float32 / pixelScale
+   let left = max(dx, clip.x)
+   let top = max(dy, clip.y)
+-  let right = min(dx + g.width, clip.x + clip.width)
+-  let bottom = min(dy + g.height, clip.y + clip.height)
++  let right = min(dx + gw, clip.x + clip.width)
++  let bottom = min(dy + gh, clip.y + clip.height)
+   if right <= left or bottom <= top:
+     return
++  let s = pixelScale                    # source in texels: physical pixels
+   drawTexture(g.texture,
+-              Rectangle(x: left - dx, y: top - dy,
+-                        width: right - left, height: bottom - top),
++              Rectangle(x: (left - dx) * s, y: (top - dy) * s,
++                        width: (right - left) * s, height: (bottom - top) * s),
+               Rectangle(x: left, y: top, width: right - left, height: bottom - top),
+               Vector2(x: 0, y: 0), 0.0, color)
+ 
+@@ -308,7 +345,7 @@ proc drawMarkupPango*(markup: string, x, y: float32, font: string,
+   if markup.len == 0:
+     return
+   let g = getGlyphs(markup, font, wrapWidth, markup = true)
+-  drawTexture(g.texture, Vector2(x: round(x), y: round(y)), White)
++  drawGlyphs(g, x, y, White)
+ 
+ proc measureTextPango*(text: string, font: string,
+                        wrapWidth: int32 = -1, dir = tdAuto): TextMeasure =
+diff --git a/packages/rui_widgets/src/dialogs/modal.nim b/packages/rui_widgets/src/dialogs/modal.nim
+index dca8973..9b0e134 100644
+--- a/packages/rui_widgets/src/dialogs/modal.nim
++++ b/packages/rui_widgets/src/dialogs/modal.nim
+@@ -29,9 +29,7 @@ proc overlayBounds*(widget: Widget): Rect =
+   while root.parent != nil: root = root.parent
+   if root != widget and root.bounds.width > 0 and root.bounds.height > 0:
+     return root.bounds
+-  Rect(x: 0, y: 0,
+-       width: float32(getScreenWidth()),
+-       height: float32(getScreenHeight()))
++  Rect(x: 0, y: 0, width: logicalScreenWidth(), height: logicalScreenHeight())
+ 
+ const ModalLayer* = 100
+ 
+diff --git a/tests/gl/pixel_density.nim b/tests/gl/pixel_density.nim
+new file mode 100644
+index 0000000..3731241
+--- /dev/null
++++ b/tests/gl/pixel_density.nim
+@@ -0,0 +1,75 @@
++## Physical pixels per logical pixel (rui_core/pixel_density.nim) at 2x: the
++## window is twice the layout, everything lands on the physical pixels its
++## logical position says, widget textures and glyphs are drawn at the screen's
++## resolution (not a 1x picture stretched), and positions come back logical.
++
++import std/os
++import rui
++from raylib import loadImageFromScreen, getImageColor, getScreenWidth, getScreenHeight
++
++putEnv("RUI_SCALE", "2")
++let app = newApp("pixel density", 200, 120)
++let square = newRectangle(color = Color(r: 0, g: 0, b: 0, a: 255))
++let placed = newPositioned(left = 50, top = 40, width = 20, height = 20)
++placed.addChild(square)
++let label = newLabel(text = "Mm", fontSize = 14.0)
++let labelAt = newPositioned(left = 100, top = 10)
++labelAt.addChild(label)
++let root = newStack(fit = StackFit.expand)
++root.addChild(placed)
++root.addChild(labelAt)
++app.setRootWidget(root)
++
++var problems: seq[string]
++var frames = 0
++proc dark(c: Color): bool = c.r.int + c.g.int + c.b.int < 300
++  ## Mostly ink: an edge pixel is anti-aliased (85 % here), the canvas is near white.
++
++app.onFrame = proc() =
++  inc frames
++  if frames != 4: return
++  if pixelScale != 2: problems.add "pixelScale is " & $pixelScale
++  if getScreenWidth() != 400 or getScreenHeight() != 240:
++    problems.add "window is " & $getScreenWidth() & "x" & $getScreenHeight() & ", not 400x240"
++  if root.bounds.width != 200 or root.bounds.height != 120:
++    problems.add "layout is not logical: " & $root.bounds
++  let shot = loadImageFromScreen()
++  # The 20x20 square at (50, 40) covers physical (100..139, 80..119): each
++  # edge's last pixel is in, the next one out (probed mid-edge: the theme may
++  # round the corners).
++  for (x, y, want) in [(100, 100, true), (139, 100, true), (120, 80, true), (120, 119, true),
++                       (99, 100, false), (140, 100, false), (120, 79, false), (120, 120, false)]:
++    if dark(getImageColor(shot, x.int32, y.int32)) != want:
++      problems.add "pixel (" & $x & ", " & $y & ") should " & (if want: "" else: "not ") & "be the square"
++  # Textures at the screen's resolution: twice the bounds.
++  # (move-only textures: read through the widget, never copied)
++  if square.cachedTexture.isSome and (square.cachedTexture.get.texture.width != 40 or
++                                      square.cachedTexture.get.texture.height != 40):
++    problems.add "square's texture is " & $square.cachedTexture.get.texture.width & "x" &
++                 $square.cachedTexture.get.texture.height & ", not 40x40"
++  if label.cachedTexture.isNone or
++     label.cachedTexture.get.texture.width < int32(label.bounds.width * 2) - 1:
++    problems.add "label's texture is not at 2x its bounds " & $label.bounds
++  # Glyphs rasterised at 2x: a vertical stem of the "M" is two physical pixels
++  # or more of solid ink, not one pixel stretched (which would be soft-edged).
++  proc lum(c: Color): int = c.r.int + c.g.int + c.b.int
++  let paper = lum(getImageColor(shot, 300, 200))
++  var ink, inkRows = 0
++  for y in 20 .. 60:
++    var rowInk = 0
++    for x in 200 .. 270:
++      if lum(getImageColor(shot, x.int32, y.int32)) < paper div 2: inc rowInk
++    ink += rowInk
++    if rowInk > 0: inc inkRows
++  # Text 14 pt high is about 19 logical pixels: 38 physical rows at 2x. A 1x
++  # raster stretched would give at most half the rows of full-strength ink.
++  if inkRows < 14:
++    problems.add "the label's ink covers " & $inkRows & " physical rows; a 2x raster covers 14 or more"
++  # Positions are logical: the square is what is at logical (60, 50).
++  if app.hitTestSystem.getWidgetAt(60, 50) notin [square, placed]:
++    problems.add "hit test at logical (60, 50) misses the square"
++
++app.run(maxFrames = 6)
++for p in problems: echo p
++if problems.len > 0: quit 1
++echo "pixel density ok"
+diff --git a/tests/test_pixel_density.nim b/tests/test_pixel_density.nim
+new file mode 100644
+index 0000000..f41b6ce
+--- /dev/null
++++ b/tests/test_pixel_density.nim
+@@ -0,0 +1,27 @@
++## pixel_density.nim's arithmetic and the text cache's font scaling, without a window.
++
++import std/[unittest, math]
++import rui_core
++import rui_drawing
++
++suite "pixel density":
++  teardown: pixelScale = 1
++
++  test "1x changes nothing":
++    pixelScale = 1
++    check snapLogical(10.4) == 10
++    check physicalExtent(10.4) == 10
++    check toPhysical(3) == 3 and toLogical(3) == 3
++
++  test "fractional scales land on physical pixels":
++    pixelScale = 2.625                     # a 420 dpi phone
++    check physicalExtent(360) == 945
++    check abs(snapLogical(10.1) * 2.625 - round(10.1 * 2.625)) < 1e-4
++    check physicalExtent(0.1) == 1         # never empty
++    check toPhysical(16) == 42 and toLogical(42) == 16
++
++  test "fonts scale by their size":
++    check scaledFont("Roboto Bold 14", 2) == "Roboto Bold 28.000"
++    check scaledFont("Sans 10.5", 3) == "Sans 31.500"
++    check scaledFont("Roboto", 2) == "Roboto 20.000"
++    check scaledFont("Roboto 14", 1) == "Roboto 14"

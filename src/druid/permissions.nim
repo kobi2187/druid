@@ -12,10 +12,11 @@
 ## The system dialog is shown by DruidPermissionActivity, so this works from a
 ## NativeActivity (RUI) as well as from an ordinary one. The permissions must
 ## also be in the app's AndroidManifest.xml, or Android denies them without asking.
-## On the desktop everything is granted.
+## On the desktop the simulator keeps the same rules (simulator.nim): not
+## granted until asked, answered at the next `pollEvents`, by its policy.
 
 import std/[options]
-import bridge, events
+import bridge, events, simulator
 
 type
   AndroidPermission* = enum
@@ -83,8 +84,8 @@ proc members*(g: PermissionGroup): seq[AndroidPermission] =
   of pgNearbyDevices: @[apBluetoothScan, apBluetoothConnect]
 
 proc check*(_: Permissions, permission: string): bool =
-  ## Whether `permission` is granted now. Always true on the desktop.
-  bridged(true): callStatic(bool, "Permissions", "check", permission)
+  ## Whether `permission` is granted now.
+  bridged(simPermissionGranted(permission)): callStatic(bool, "Permissions", "check", permission)
 proc check*(p: Permissions, permission: AndroidPermission): bool = p.check($permission)
 proc check*(p: Permissions, group: PermissionGroup): bool =
   for m in group.members:
@@ -93,7 +94,8 @@ proc check*(p: Permissions, group: PermissionGroup): bool =
 
 proc shouldShowRationale*(_: Permissions, permission: AndroidPermission): bool =
   ## Whether the user denied it before, so the app should explain before asking again.
-  bridged(false): callStatic(bool, "Permissions", "shouldShowRationale", $permission)
+  bridged(simShouldShowRationale($permission)):
+    callStatic(bool, "Permissions", "shouldShowRationale", $permission)
 
 var nextRequest {.threadvar.}: int
 
@@ -106,9 +108,7 @@ proc request*(_: Permissions, perms: openArray[string]): PermissionRequest =
   if druidStarted():
     callStatic(void, "Permissions", "request", @perms, result.id)
   else:
-    var fields = @[$result.id]
-    for p in perms: fields.add p; fields.add "1"
-    postLocal encodeEvent("permission", fields)
+    simRequest(result.id, perms)
 
 proc request*(p: Permissions, perms: varargs[AndroidPermission]): PermissionRequest =
   var s: seq[string]
@@ -133,3 +133,4 @@ proc results*(_: Permissions, req: PermissionRequest): seq[tuple[permission: str
 proc openSettings*(_: Permissions) =
   ## Opens this app's system settings, where a permission denied for good can be granted.
   if druidStarted(): callStatic(void, "Permissions", "openSettings")
+  else: simOpened("settings app-details")

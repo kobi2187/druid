@@ -7,9 +7,11 @@
 ## ```
 ##
 ## The manifest needs android.permission.VIBRATE (the druid library declares it).
-## Does nothing on the desktop.
+## On the desktop the simulated device records what it would have felt
+## (`simulator().vibrations`).
 
-import bridge
+import std/strutils
+import bridge, simulator
 
 type
   Vibration* = object
@@ -19,15 +21,18 @@ type
 
 proc vibration*(): Vibration = discard
 
-proc hasVibrator*(_: Vibration): bool = bridged(false): callStatic(bool, "Vibration", "hasVibrator")
+proc hasVibrator*(_: Vibration): bool =
+  bridged(simulator().profile.hasVibrator): callStatic(bool, "Vibration", "hasVibrator")
 proc hasAmplitudeControl*(_: Vibration): bool =
-  bridged(false): callStatic(bool, "Vibration", "hasAmplitudeControl")
+  bridged(simulator().profile.amplitudeControl and simulator().profile.apiLevel >= 26):
+    callStatic(bool, "Vibration", "hasAmplitudeControl")
 
 proc vibrate*(_: Vibration, millis: int, amplitude = -1) =
   ## Buzz for `millis`; `amplitude` 1..255, or -1 for the device's default.
   if amplitude != -1 and amplitude notin 1..255:
     raise newException(ValueError, "amplitude must be 1..255 or -1, not " & $amplitude)
   if druidStarted(): callStatic(void, "Vibration", "vibrate", int64(millis), amplitude)
+  elif millis > 0: simVibrate($millis & "ms")
 
 proc pattern*(_: Vibration, timings: openArray[int], repeat = -1) =
   ## Alternating pause/buzz durations in ms, starting with a pause. `repeat`
@@ -37,9 +42,12 @@ proc pattern*(_: Vibration, timings: openArray[int], repeat = -1) =
   var t: seq[int64]
   for x in timings: t.add int64(x)
   if druidStarted(): callStatic(void, "Vibration", "pattern", t, repeat)
+  elif t.len > 0: simVibrate("pattern " & t.join(","))
 
 proc effect*(_: Vibration, e: HapticEffect) =
   if druidStarted(): callStatic(void, "Vibration", "effect", ord(e))
+  else: simVibrate("effect " & $ord(e))
 
 proc cancel*(_: Vibration) =
   if druidStarted(): callStatic(void, "Vibration", "cancel")
+  else: simVibrate("cancel")

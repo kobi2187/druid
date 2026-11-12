@@ -5,12 +5,12 @@
 ## let token = crypto().randomBytes(32)
 ## ```
 ##
-## Digests and MACs use Android's providers, so they need Druid started (they
-## raise `DruidNotStarted` on the desktop). Random bytes, UUIDs and Base64
-## work everywhere.
+## On Android, digests and MACs come from its providers; on the desktop from
+## hashing.nim, which gives the same bytes (tests/conformance.nim checks it).
+## An unknown algorithm raises DruidError on both.
 
 import std/[sysrand, base64, strutils]
-import bridge
+import bridge, hashing
 
 type Crypto* = object
 proc crypto*(): Crypto = discard
@@ -25,14 +25,18 @@ proc toHex*(b: openArray[byte]): string =
 
 proc digest*(_: Crypto, algorithm: string, data: openArray[byte]): seq[byte] =
   ## `algorithm`: "SHA-256", "SHA-512", "SHA-1", "MD5".
-  callStatic(seq[byte], "Crypto", "digest", algorithm, @data)
+  if druidStarted(): return callStatic(seq[byte], "Crypto", "digest", algorithm, @data)
+  try: digestOf(algorithm, data)
+  except ValueError as e: raise newException(DruidError, "Crypto.digest (simulated): " & e.msg)
 proc sha256*(c: Crypto, data: string): seq[byte] = c.digest("SHA-256", data.toBytes)
 proc sha256Hex*(c: Crypto, data: string): string = c.sha256(data).toHex
 proc sha512*(c: Crypto, data: string): seq[byte] = c.digest("SHA-512", data.toBytes)
 
 proc hmac*(_: Crypto, algorithm: string, key, data: openArray[byte]): seq[byte] =
   ## `algorithm`: "HmacSHA256", "HmacSHA512", "HmacSHA1".
-  callStatic(seq[byte], "Crypto", "hmac", algorithm, @key, @data)
+  if druidStarted(): return callStatic(seq[byte], "Crypto", "hmac", algorithm, @key, @data)
+  try: hmacOf(algorithm, key, data)
+  except ValueError as e: raise newException(DruidError, "Crypto.hmac (simulated): " & e.msg)
 proc hmacSha256*(c: Crypto, key, data: string): seq[byte] = c.hmac("HmacSHA256", key.toBytes, data.toBytes)
 
 proc randomBytes*(_: Crypto, n: int): seq[byte] =
