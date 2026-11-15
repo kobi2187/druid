@@ -36,6 +36,17 @@ class AppTest {
         val info = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), PackageManager.GET_META_DATA)
         assertEquals("main", info.metaData.getString("android.app.lib_name"))
         assertTrue(NativeActivity::class.java.isAssignableFrom(MainActivity::class.java))
+        // One instance: a notification tap or a share while it runs is onNewIntent, passed to Druid.
+        assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
+    }
+
+    @Test fun druidsReceiversAndJobServiceAreMergedIn() {
+        val pm = app.packageManager
+        for (cls in listOf("dev.druid.DruidNotificationReceiver", "dev.druid.DruidAlarmReceiver")) {
+            pm.getReceiverInfo(ComponentName(app.packageName, cls), 0)      // throws if missing
+        }
+        val job = pm.getServiceInfo(ComponentName(app.packageName, "dev.druid.DruidJobService"), 0)
+        assertEquals("android.permission.BIND_JOB_SERVICE", job.permission)
     }
 
     @Test fun druidIsMergedIn() {

@@ -3,7 +3,8 @@
 ## Druid gives a Nim program (an RUI app, a game, anything on the NDK) the
 ## parts of Android that live in Java: permissions, notifications, clipboard,
 ## vibration, sensors, location, network state, battery, storage paths,
-## preferences, sharing and links, the soft keyboard, and more.
+## preferences, sharing and links, the soft keyboard, the camera, alarms and
+## background jobs, what other apps share with it, Bluetooth LE, and more.
 ##
 ## ```nim
 ## import druid
@@ -27,10 +28,12 @@
 
 import druid/[bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
               notifications, connectivity, power, storage, display, audio, location,
-              sensors, keyboard, intents, prefs, crypto, hardware, media]
+              sensors, keyboard, intents, prefs, crypto, hardware, media,
+              capture, background, incoming, ble]
 export bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
        notifications, connectivity, power, storage, display, audio, location,
-       sensors, keyboard, intents, prefs, crypto, hardware, media
+       sensors, keyboard, intents, prefs, crypto, hardware, media,
+       capture, background, incoming, ble
 
 const
   DruidVersionMajor* = 1

@@ -2,7 +2,7 @@
 ## follows Android's rules, so what works here works on a phone.
 ## tests/conformance.nim checks the shared scenarios against Robolectric too.
 
-import std/[unittest, options, os, strutils, math]
+import std/[unittest, options, os, strutils, math, sequtils]
 import ../src/druid
 
 putEnv("DRUID_OPEN_LINKS", "0")
@@ -228,3 +228,187 @@ suite "simulated device":
     discard keyboard().show()
     check simulator().keyboardVisible
     check crypto().sha256("abc").len == 32
+
+suite "simulated device: camera, notifications, background work, shares, BLE":
+  setup:
+    simulator().useProfile("phone")
+    resetEventState()
+
+  proc only(kind: DruidEventKind): seq[DruidEvent] =
+    for ev in pollEvents():
+      if ev.kind == kind: result.add ev
+
+  test "a photo needs CAMERA, then is written and reported":
+    let path = getTempDir() / "druid_sim_photo.jpg"
+    removeFile(path)
+    expect DruidPermissionError: discard camera().takePhoto(path)
+    simulator().grant($apCamera)
+    expect DruidError: discard camera().takePhoto(path, cameraId = "9")
+    let shot = camera().takePhoto(path)
+    let ev = only(ekPhoto)
+    check ev.len == 1 and ev[0].photoId == shot.id and ev[0].photoOk and ev[0].photoPath == path
+    let jpeg = readFile(path)
+    check jpeg.len > 1000 and jpeg[0] == '\xFF' and jpeg[1] == '\xD8'
+    let bad = camera().takePhoto(getTempDir() / "no-such-dir" / "x.jpg")
+    let ev2 = only(ekPhoto)
+    check ev2.len == 1 and ev2[0].photoId == bad.id and not ev2[0].photoOk and
+          "FileNotFoundException" in ev2[0].photoError
+    simulator().useProfile(DeviceProfile(name: "none", apiLevel: 34))
+    simulator().grant($apCamera)
+    expect DruidError: discard camera().takePhoto(path)
+
+  test "frames stream at a camera size, upright angle, and convert to RGBA":
+    expect DruidPermissionError: discard camera().startFrames()
+    simulator().grant($apCamera)
+    check chooseSize([(1920, 1080), (640, 480), (320, 240)], 700) == (640, 480)
+    check chooseSize([(1920, 1080), (640, 480)], 100) == (640, 480)
+    check chooseSize([(1920, 1080), (640, 480)], 0) == (1920, 1080)
+    check camera().latestFrame.isNone
+    let req = camera().startFrames(width = 320, height = 240)
+    let ev = only(ekCamera)
+    check ev.len == 1 and ev[0].cameraRequestId == req.id and ev[0].cameraStarted and
+          ev[0].frameWidth == 320 and ev[0].frameHeight == 240
+    check camera().isStreaming
+    let f = camera().latestFrame
+    check f.isSome and f.get.width == 320 and f.get.height == 240 and f.get.rotation == 90
+    check f.get.i420.len == 320 * 240 * 3 div 2
+    check camera().latestFrame(since = f.get.seq + 1_000_000).isNone
+    let rgba = f.get.toRgba
+    check rgba.len == 320 * 240 * 4 and rgba[3] == 255
+    # The first bar is white-ish (Y 235, neutral chroma).
+    check rgba[4 * 10] > 200 and rgba[4 * 10 + 1] > 200 and rgba[4 * 10 + 2] > 200
+    discard camera().startFrames(cameraId = "1")
+    check camera().latestFrame.get.rotation == 270
+    camera().stopFrames()
+    check not camera().isStreaming and camera().latestFrame.isNone
+
+  test "notification taps, buttons, replies and dismissals are events":
+    simulator().grant($apPostNotifications)
+    notifications().show(7, "Message", "Hi", actions = [("read", "Mark read")], reply = "Reply")
+    let n = simulator().notificationsShown[0]
+    check n.actions == @[(id: "read", label: "Mark read")] and n.replyLabel == "Reply"
+    simulator().pressAction(7, "read")
+    expect ValueError: simulator().pressAction(7, "nope")
+    simulator().reply(7, "on my way")
+    check notifications().active.len == 0       # a reply closes it
+    var ev = only(ekNotification)
+    check ev.len == 2 and ev[0].interaction == "action" and ev[0].notificationDetail == "read"
+    check ev[1].interaction == "reply" and ev[1].notificationDetail == "on my way" and ev[1].notificationId == 7
+    notifications().show(8, "Tap me", "")
+    simulator().tapNotification(8)
+    check 8 notin notifications().active        # autoCancel
+    notifications().show(9, "Stays", "", autoCancel = false)
+    simulator().tapNotification(9)
+    check 9 in notifications().active
+    notifications().show(10, "Upload", "", ongoing = true)
+    expect ValueError: simulator().dismissNotification(10)
+    simulator().dismissNotification(9)
+    ev = only(ekNotification)
+    check ev.mapIt((it.notificationId, it.interaction)) == @[(8, "tap"), (9, "tap"), (9, "dismissed")]
+    expect ValueError: simulator().reply(10, "x")   # no reply field
+    simulator().useProfile("small")                  # API 28
+    notifications().show(1, "Old", "", reply = "Reply")
+    check simulator().notificationsShown[0].replyLabel == "Reply"
+
+  test "alarms fire when due, with their notification":
+    simulator().grant($apPostNotifications)
+    check not alarms().canBeExact                    # API 34: needs the user's grant
+    let t = nowMs() + 60_000
+    check not alarms().set(1, t, "Stretch", "Get up", exact = true)
+    simulator().setExactAlarmsAllowed(true)
+    check alarms().canBeExact and alarms().set(2, t + 1000, exact = true)
+    check alarms().pending == @[1, 2]
+    check only(ekAlarm).len == 0
+    simulator().advanceClock(60_500)
+    var ev = only(ekAlarm)
+    check ev.len == 1 and ev[0].alarmId == 1 and ev[0].alarmAtMs == t
+    check simulator().notificationsShown.mapIt(it.title) == @["Stretch"]
+    check alarms().pending == @[2]
+    alarms().cancel(2)
+    simulator().advanceClock(10_000)
+    check only(ekAlarm).len == 0 and alarms().pending.len == 0
+    alarms().set(3, nowMs() + 3_600_000)
+    simulator().fireAlarm(3)
+    ev = only(ekAlarm)
+    check ev.len == 1 and ev[0].alarmId == 3 and simulator().notificationsShown.len == 1  # no title: no notification
+    simulator().useProfile("small")
+    check alarms().canBeExact                         # before Android 12
+
+  test "jobs run when their conditions hold":
+    check jobs().schedule(1, delayMs = 5000, network = jnUnmetered)
+    check jobs().schedule(2, periodMinutes = 5, charging = true)     # 15 at least
+    check jobs().scheduled == @[1, 2]
+    simulator().setNetwork("cellular", metered = true)
+    simulator().advanceClock(10_000)
+    check only(ekJob).len == 0                        # waiting for Wi-Fi
+    simulator().setNetwork("wifi")
+    var ev = only(ekJob)
+    check ev.len == 1 and ev[0].jobId == 1 and ev[0].jobRanAtMs > 0
+    check jobs().scheduled == @[2]                    # once: done
+    simulator().advanceClock(15 * 60_000)
+    check only(ekJob).len == 0                        # not charging
+    simulator().setBattery(50, charging = true)
+    check only(ekJob).mapIt(it.jobId) == @[2]
+    check jobs().scheduled == @[2]                    # periodic: again later
+    check only(ekJob).len == 0
+    simulator().runJob(2)
+    check only(ekJob).len == 1
+    jobs().cancelAll()
+    check jobs().scheduled.len == 0
+
+  test "shares and links from other apps":
+    let src = getTempDir() / "druid_share_src.txt"
+    writeFile(src, "hello")
+    incoming().clearCopies()
+    simulator().share(text = "look", subject = "S", mime = "image/*", files = [src, src])
+    simulator().openLink("https://example.com/x")
+    let ev = only(ekIncoming)
+    check ev.len == 2
+    check ev[0].incomingAction == "send" and ev[0].incomingText == "look" and ev[0].incomingSubject == "S"
+    check ev[0].incomingFiles.len == 2 and ev[0].incomingFiles[0] != ev[0].incomingFiles[1]
+    check readFile(ev[0].incomingFiles[1]) == "hello"
+    check ev[0].incomingFiles[0].startsWith(incoming().copiesDir)
+    check ev[1].incomingAction == "view" and ev[1].incomingUrl == "https://example.com/x"
+    incoming().clearCopies()
+    check not fileExists(ev[0].incomingFiles[0])
+
+  test "BLE scans need a permission and Bluetooth, and report matching devices":
+    expect DruidPermissionError: bluetooth().startScan()
+    simulator().grant($apBluetoothScan)
+    simulator().addBleDevice("AA:BB:CC:00:00:01", "Band", -50, ["0000180d-0000-1000-8000-00805f9b34fb"])
+    simulator().addBleDevice("AA:BB:CC:00:00:02", "Tag", -80)
+    bluetooth().startScan()
+    check bluetooth().isScanning
+    var ev = only(ekBle)
+    check ev.mapIt(it.bleName) == @["Band", "Tag"]
+    check ev[0].bleServices == @["0000180d-0000-1000-8000-00805f9b34fb"] and ev[0].bleRssi == -50
+    check only(ekBle).len == 0                        # throttled: seen already
+    simulator().addBleDevice("AA:BB:CC:00:00:02", "Tag", -40)     # moved closer
+    ev = only(ekBle)
+    check ev.len == 1 and ev[0].bleRssi == -40
+    bluetooth().startScan(services = ["0000180D-0000-1000-8000-00805F9B34FB"])
+    check only(ekBle).mapIt(it.bleName) == @["Band"]
+    simulator().removeBleDevice("AA:BB:CC:00:00:01")
+    bluetooth().startScan()
+    check only(ekBle).mapIt(it.bleName) == @["Tag"]
+    bluetooth().stopScan()
+    check not bluetooth().isScanning
+    simulator().setBluetoothEnabled(false)
+    expect DruidError: bluetooth().startScan()
+    simulator().useProfile("small")                   # API 28, no BLE feature
+    expect DruidError: bluetooth().startScan()
+    simulator().useProfile("tablet")
+    expect DruidPermissionError: bluetooth().startScan()          # BLUETOOTH_SCAN on 31+
+    simulator().grant($apBluetoothScan)
+    bluetooth().startScan()
+    bluetooth().stopScan()
+
+  test "the new events parse from the Java side's encoding":
+    check parseEvent(encodeEvent("photo", 3, "ok", "/p.jpg")).photoPath == "/p.jpg"
+    let c = parseEvent(encodeEvent("camera", 4, "started", "1280x720"))
+    check c.kind == ekCamera and c.frameWidth == 1280 and c.frameHeight == 720
+    check not parseEvent(encodeEvent("camera", 4, "error", "boom")).cameraStarted
+    check parseEvent(encodeEvent("ble", "", "", 0, "error:2")).bleError == 2
+    check parseEvent(encodeEvent("job", 1, 1700000000000'i64)).jobRanAtMs == 1700000000000'i64
+    check parseEvent(encodeEvent("incoming", "send", "text/plain", "", "t", "")).incomingFiles.len == 0
+    check parseEvent(encodeEvent("alarm", "x", 1)).kind == ekUnknown

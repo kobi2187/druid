@@ -39,13 +39,35 @@ public final class Notifications {
 
     public static boolean areEnabled() { return nm().areNotificationsEnabled(); }
 
+    /** The extra a notification's tap puts on the launch Intent: its id (Druid reports a "notification ... tap" event). */
+    public static final String EXTRA_TAP = "dev.druid.notification";
+
     /**
      * Shows (or replaces) notification {@code id}. Tapping it opens the app's
      * launcher Activity. {@code progress} -1 for none, else 0..100.
      */
-    @SuppressWarnings("deprecation")
     public static void show(int id, String channel, String title, String text,
                             boolean ongoing, boolean autoCancel, int progress) {
+        showFull(id, channel, title, text, ongoing, autoCancel, progress,
+                 new String[0], new String[0], "", "");
+    }
+
+    /**
+     * {@link #show} with action buttons and an inline reply. What the user does
+     * becomes a "notification" event: (id, "tap", ""), (id, "dismissed", ""),
+     * (id, "action", actionId) or (id, "reply", text) -- kept until the app
+     * reads it, even if it was not running.
+     *
+     * @param actionIds   ids of the buttons, reported back
+     * @param actionLabels what the buttons say
+     * @param replyLabel  non-empty: a "Reply" button with a text field, labelled so
+     * @param replyHint   the field's hint
+     */
+    @SuppressWarnings("deprecation")
+    public static void showFull(int id, String channel, String title, String text,
+                                boolean ongoing, boolean autoCancel, int progress,
+                                String[] actionIds, String[] actionLabels,
+                                String replyLabel, String replyHint) {
         Context c = Druid.context();
         String ch = channel == null || channel.isEmpty() ? DEFAULT_CHANNEL : channel;
         if (Build.VERSION.SDK_INT >= 26 && nm().getNotificationChannel(ch) == null) {
@@ -64,9 +86,22 @@ public final class Notifications {
         if (progress >= 0) b.setProgress(100, Math.min(100, progress), false);
         Intent launch = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
         if (launch != null) {
-            launch.putExtra("dev.druid.notification", id);
+            launch.putExtra(EXTRA_TAP, id);
             b.setContentIntent(PendingIntent.getActivity(c, id, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        }
+        b.setDeleteIntent(DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.DISMISSED, "", false));
+        int n = Math.min(actionIds.length, actionLabels.length);
+        for (int k = 0; k < n; k++) {
+            b.addAction(new Notification.Action.Builder(null, actionLabels[k],
+                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.ACTION, actionIds[k], false)).build());
+        }
+        if (replyLabel != null && !replyLabel.isEmpty() && Build.VERSION.SDK_INT >= 24) {
+            android.app.RemoteInput input = new android.app.RemoteInput.Builder(DruidNotificationReceiver.REPLY_KEY)
+                .setLabel(replyHint == null || replyHint.isEmpty() ? replyLabel : replyHint).build();
+            b.addAction(new Notification.Action.Builder(null, replyLabel,
+                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.REPLY, "", true))
+                .addRemoteInput(input).build());
         }
         nm().notify(id, b.build());
     }

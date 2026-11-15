@@ -15,6 +15,7 @@ import android.app.Application;
 import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationManager;
+import android.bluetooth.BluetoothManager;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -640,5 +641,109 @@ public class NimHarnessTest {
         assertEquals("8000000", f[1]);
         assertEquals("200000", f[2]);
         assertEquals("1", f[3]);
+    }
+
+    // ---- camera capture, notification interactions, alarms, jobs, incoming, BLE ----
+
+    private void addBackCamera() {
+        CameraManager cm = (CameraManager) app.getSystemService(Context.CAMERA_SERVICE);
+        CameraCharacteristics back = ShadowCameraCharacteristics.newCameraCharacteristics();
+        shadowOf(back).set(CameraCharacteristics.LENS_FACING, CameraCharacteristics.LENS_FACING_BACK);
+        shadowOf(back).set(CameraCharacteristics.SENSOR_ORIENTATION, 90);
+        shadowOf(cm).addCamera("0", back);
+    }
+
+    @Test public void cameraCapture() throws Exception {
+        addBackCamera();
+        String path = new java.io.File(app.getCacheDir(), "nim.jpg").getPath();
+        assertTrue(cmd("cam.photo", path, "", 0).startsWith("ERR DruidPermissionError"));
+        shadowOf(app).grantPermissions(Manifest.permission.CAMERA);
+        String id = cmd("cam.photo", path, "", 800);
+        assertFalse(id, id.startsWith("ERR"));
+        assertTrue(cmd("cam.photo", path, "9", 0).startsWith("ERR"));       // no such camera
+
+        String req = cmd("cam.frames", "", 640, 480);
+        shadowOf(CameraCapture.handler().getLooper()).idle();
+        idle();
+        assertEquals("1", cmd("cam.streaming"));
+        assertTrue(cmd("cam.events").contains("camera:" + req + ":1:640x480"));
+        assertEquals("<none>", cmd("cam.latest", 0));
+        // A 2x2 frame, white: Y 235, neutral chroma.
+        byte[] packed = new byte[CameraCapture.FRAME_HEADER + 6];
+        for (int k = 0; k < 4; k++) packed[CameraCapture.FRAME_HEADER + k] = (byte) 235;
+        packed[CameraCapture.FRAME_HEADER + 4] = (byte) 128;
+        packed[CameraCapture.FRAME_HEADER + 5] = (byte) 128;
+        CameraCapture.store(CameraCapture.currentStream(), 2, 2, packed);
+        assertEquals("1|2|2|90|6|255|255|255|255", cmd("cam.latest", 0));
+        assertEquals("<none>", cmd("cam.latest", 1));
+        assertEquals("0", cmd("cam.stop"));
+    }
+
+    @Test public void notificationInteractions() throws Exception {
+        NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+        assertEquals("ok", cmd("notif.full", 12, "Ping", "Are you there?", "Answer"));
+        Notification n = shadowOf(nm).getNotification(12);
+        assertEquals(3, n.actions.length);
+        n.actions[0].actionIntent.send();
+        idle();
+        n.deleteIntent.send();
+        idle();
+        assertEquals("12:action:yes,12:dismissed:", cmd("notif.events"));
+        Intent tap = new Intent(Intent.ACTION_MAIN).putExtra(Notifications.EXTRA_TAP, 12);
+        ActivityController<Activity> c = Robolectric.buildActivity(Activity.class, tap).create();
+        assertEquals("12:tap:", cmd("notif.events"));
+        c.destroy();
+    }
+
+    @Test public void alarmsAndJobs() {
+        long now = Long.parseLong(cmd("now"));
+        assertTrue(Math.abs(now - System.currentTimeMillis()) < 60_000);
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(false);
+        assertEquals("0", cmd("alarm.exact"));                    // Android 12+: the user grants it
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true);
+        assertEquals("1", cmd("alarm.exact"));
+        assertEquals("1", cmd("alarm.set", 3, now + 60_000, "Stretch", "Get up", 1));
+        assertEquals("0", cmd("alarm.set", 4, now + 120_000, "", "", 0));
+        assertEquals("3,4", cmd("alarm.pending"));
+        Alarms.fire(app, 3);
+        assertEquals("3:" + (now + 60_000), cmd("alarm.events"));
+        assertEquals("4", cmd("alarm.pending"));
+        assertEquals("", cmd("alarm.cancel", 4));
+
+        assertEquals("1", cmd("job.schedule", 7, 30, 0, "jnUnmetered", 1, 1));
+        assertEquals("1", cmd("job.schedule", 8, 0, 1000, "jnNone", 0, 0));
+        assertEquals("7,8", cmd("job.scheduled"));
+        Robolectric.setupService(DruidJobService.class).ran(7);
+        assertEquals("7", cmd("job.events"));
+        assertEquals("8", cmd("job.cancel", 7));
+        assertEquals("", cmd("job.cancelAll"));
+    }
+
+    @Test public void incomingShares() throws Exception {
+        Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, "from another app").putExtra(Intent.EXTRA_SUBJECT, "Hi");
+        ActivityController<Activity> c = Robolectric.buildActivity(Activity.class, share).create();
+        assertEquals("send|text/plain|Hi|from another app||", cmd("incoming.events"));
+        Druid.newIntent(c.get(), new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://nim-lang.org")));
+        assertEquals("view||||https://nim-lang.org|", cmd("incoming.events"));
+        c.destroy();
+        assertEquals(new java.io.File(app.getCacheDir(), Incoming.DIR).getPath(), cmd("incoming.dir"));
+        assertEquals("ok", cmd("incoming.clear"));
+    }
+
+    @Test public void bleScanning() {
+        BluetoothManager bm = (BluetoothManager) app.getSystemService(Context.BLUETOOTH_SERVICE);
+        shadowOf(bm.getAdapter()).setEnabled(true);
+        String heart = "0000180d-0000-1000-8000-00805f9b34fb";
+        assertEquals("1", cmd("ble.start", "smLowLatency", heart, 0));
+        org.robolectric.shadows.ShadowBluetoothLeScanner sc = Shadow.extract(bm.getAdapter().getBluetoothLeScanner());
+        android.bluetooth.le.ScanCallback cb = sc.getScanCallbacks().iterator().next();
+        cb.onScanResult(1, new android.bluetooth.le.ScanResult(bm.getAdapter().getRemoteDevice("AA:BB:CC:00:00:01"),
+            null, -42, 0));
+        cb.onScanFailed(2);
+        assertEquals("AA:BB:CC:00:00:01||-42||0,||0||2", cmd("ble.events"));
+        assertEquals("0", cmd("ble.stop"));
+        shadowOf(bm.getAdapter()).setEnabled(false);
+        assertTrue(cmd("ble.start", "smBalanced", "", 1000).startsWith("ERR DruidError"));
     }
 }

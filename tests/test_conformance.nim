@@ -22,7 +22,18 @@ proc simArrange(what: string) =
       simulator().setSensor(parseInt(w[1]), vs)
   of "provider": simulator().setProviderEnabled(w[1], w[2] == "on")
   of "fix": simulator().setLocation(parseFloat(w[1]), parseFloat(w[2]), accuracy = parseFloat(w[3]))
-  of "idle", "disk": discard
+  of "idle", "disk", "camera": discard
+  of "tap": simulator().tapNotification(parseInt(w[1]))
+  of "press": simulator().pressAction(parseInt(w[1]), w[2])
+  of "dismiss": simulator().dismissNotification(parseInt(w[1]))
+  of "reply": simulator().reply(parseInt(w[1]), w[2 .. ^1].join(" "))
+  of "share": simulator().share(text = w[1 .. ^1].join(" "))
+  of "link": simulator().openLink(w[1])
+  of "fire": simulator().fireAlarm(parseInt(w[1]))
+  of "run": simulator().runJob(parseInt(w[1]))
+  of "exact": simulator().setExactAlarmsAllowed(w[1] == "on")
+  of "bluetooth": simulator().setBluetoothEnabled(w[1] == "on")
+  of "ble": simulator().addBleDevice(w[1], rssi = parseInt(w[2]))
   else: raise newException(ValueError, "unknown arrangement " & what)
 
 suite "conformance (desktop simulator)":

@@ -262,6 +262,71 @@ cmd "cam.torch":
   camera().setTorch(a[0], a[1] == "1")
   "ok"
 
+# ---- camera capture ----
+cmd "cam.photo": $camera().takePhoto(a[0], a[1], parseInt(a[2])).id
+cmd "cam.frames": $camera().startFrames(a[0], parseInt(a[1]), parseInt(a[2])).id
+cmd "cam.streaming": b(camera().isStreaming)
+cmd "cam.stop":
+  camera().stopFrames()
+  b(camera().isStreaming)
+cmd "cam.latest":
+  let f = camera().latestFrame(parseBiggestInt(a[0]))
+  if f.isNone: "<none>"
+  else:
+    let rgba = f.get.toRgba
+    j(f.get.seq, f.get.width, f.get.height, f.get.rotation, f.get.i420.len, rgba[0], rgba[1], rgba[2], rgba[3])
+cmd "cam.events":
+  pollEvents().filterIt(it.kind in {ekPhoto, ekCamera}).mapIt(
+    if it.kind == ekPhoto: "photo:" & $it.photoId & ":" & b(it.photoOk) & ":" & it.photoPath & it.photoError
+    else: "camera:" & $it.cameraRequestId & ":" & b(it.cameraStarted) & ":" & $it.frameWidth & "x" & $it.frameHeight).join(",")
+
+# ---- notification interactions, alarms, jobs, incoming, BLE ----
+cmd "notif.full":
+  notifications().show(parseInt(a[0]), a[1], a[2], actions = [("yes", "Yes"), ("no", "No")], reply = a[3])
+  "ok"
+proc interactions(): string =
+  pollEvents().filterIt(it.kind == ekNotification).mapIt(
+    $it.notificationId & ":" & it.interaction & ":" & it.notificationDetail).join(",")
+cmd "notif.events": interactions()
+cmd "now": $nowMs()
+cmd "alarm.exact": b(alarms().canBeExact)
+cmd "alarm.set": b(alarms().set(parseInt(a[0]), parseBiggestInt(a[1]), a[2], a[3], exact = a[4] == "1"))
+cmd "alarm.pending": alarms().pending.join(",")
+cmd "alarm.cancel":
+  alarms().cancel(parseInt(a[0]))
+  alarms().pending.join(",")
+cmd "alarm.events":
+  pollEvents().filterIt(it.kind == ekAlarm).mapIt($it.alarmId & ":" & $it.alarmAtMs).join(",")
+cmd "job.schedule":
+  b(jobs().schedule(parseInt(a[0]), periodMinutes = parseInt(a[1]), delayMs = parseBiggestInt(a[2]),
+                    network = parseEnum[JobNetwork](a[3]), charging = a[4] == "1", persisted = a[5] == "1"))
+cmd "job.scheduled": jobs().scheduled.join(",")
+cmd "job.cancel":
+  jobs().cancel(parseInt(a[0]))
+  jobs().scheduled.join(",")
+cmd "job.cancelAll":
+  jobs().cancelAll()
+  jobs().scheduled.join(",")
+cmd "job.events": pollEvents().filterIt(it.kind == ekJob).mapIt($it.jobId).join(",")
+cmd "incoming.events":
+  pollEvents().filterIt(it.kind == ekIncoming).mapIt(
+    j(it.incomingAction, it.incomingMime, it.incomingSubject, it.incomingText, it.incomingUrl,
+      it.incomingFiles.join(";"))).join(",")
+cmd "incoming.dir": incoming().copiesDir
+cmd "incoming.clear":
+  incoming().clearCopies()
+  "ok"
+cmd "ble.start":
+  bluetooth().startScan(services = (if a[1].len > 0: a[1].split(';') else: @[]),
+                        mode = parseEnum[ScanMode](a[0]), minIntervalMs = parseInt(a[2]))
+  b(bluetooth().isScanning)
+cmd "ble.stop":
+  bluetooth().stopScan()
+  b(bluetooth().isScanning)
+cmd "ble.events":
+  pollEvents().filterIt(it.kind == ekBle).mapIt(
+    j(it.bleAddress, it.bleName, it.bleRssi, it.bleServices.join(";"), it.bleError)).join(",")
+
 # ---- media ----
 cmd "player.open":
   let t = player().open(a[0])
