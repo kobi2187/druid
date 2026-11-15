@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Alarms and persisted jobs are set again after a reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application>
         <!-- Asks for runtime permissions on behalf of any Activity (a
              NativeActivity cannot receive the result) and finishes at once. -->
@@ -15,5 +17,18 @@
             android:excludeFromRecents="true"
             android:noHistory="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- A notification's buttons, inline reply and dismissal (Notifications.showFull). -->
+        <receiver android:name="dev.druid.DruidNotificationReceiver" android:exported="false" />
+        <!-- Alarms firing, and re-armed after a reboot (Alarms). -->
+        <receiver android:name="dev.druid.DruidAlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <!-- Background jobs (Jobs). -->
+        <service
+            android:name="dev.druid.DruidJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

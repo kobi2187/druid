@@ -33,6 +33,13 @@ type
     ekPlayer           ## a Player was prepared, completed or failed
     ekBiometric        ## a biometric prompt was answered
     ekDownload         ## a download finished
+    ekPhoto            ## a photo was taken, or failed (camera().takePhoto)
+    ekCamera           ## preview frames started or failed (camera().startFrames)
+    ekNotification     ## a notification was tapped, dismissed, its button pressed, replied to
+    ekAlarm            ## an alarm went off (alarms().set)
+    ekJob              ## a background job ran (jobs().schedule)
+    ekIncoming         ## another app shared something with this one, or opened a link with it
+    ekBle              ## a Bluetooth LE device was seen (bluetooth().startScan)
     ekUnknown          ## from a newer Java side; `raw` has it
 
   LocationFix* = object
@@ -88,6 +95,37 @@ type
       downloadId*: int64
       downloadStatus*: int   ## DownloadManager.STATUS_* (8 successful, 16 failed)
       localUri*: string
+    of ekPhoto:
+      photoId*: int
+      photoOk*: bool
+      photoPath*: string     ## the JPEG written, when photoOk
+      photoError*: string    ## why not, otherwise
+    of ekCamera:
+      cameraRequestId*: int
+      cameraStarted*: bool   ## false: failed (cameraDetail says why)
+      frameWidth*, frameHeight*: int
+      cameraDetail*: string
+    of ekNotification:
+      notificationId*: int
+      interaction*: string   ## "tap", "dismissed", "action", "reply"
+      notificationDetail*: string  ## the action's id, or the reply's text
+    of ekAlarm:
+      alarmId*: int
+      alarmAtMs*: int64      ## when it was set for (Unix ms)
+    of ekJob:
+      jobId*: int
+      jobRanAtMs*: int64
+    of ekIncoming:
+      incomingAction*: string  ## "send" (shared to the app) or "view" (opened with it)
+      incomingMime*: string
+      incomingSubject*, incomingText*: string
+      incomingUrl*: string     ## a link opened with the app
+      incomingFiles*: seq[string]  ## copies in the cache; "!reason" for one that could not be read
+    of ekBle:
+      bleAddress*, bleName*: string
+      bleRssi*: int          ## dBm
+      bleServices*: seq[string]   ## advertised service UUIDs
+      bleError*: int         ## ScanCallback.SCAN_FAILED_* when the scan failed (bleAddress is "")
     of ekUnknown:
       discard
 
@@ -155,6 +193,33 @@ proc parseEvent*(raw: string): DruidEvent =
     of "download":
       result = DruidEvent(kind: ekDownload, raw: raw, downloadId: int64Of(at(1)),
                           downloadStatus: intOf(at(2)), localUri: at(3))
+    of "photo":
+      let ok = at(2) == "ok"
+      result = DruidEvent(kind: ekPhoto, raw: raw, photoId: intOf(at(1)), photoOk: ok,
+                          photoPath: (if ok: at(3) else: ""), photoError: (if ok: "" else: at(3)))
+    of "camera":
+      result = DruidEvent(kind: ekCamera, raw: raw, cameraRequestId: intOf(at(1)),
+                          cameraStarted: at(2) == "started", cameraDetail: at(3))
+      if result.cameraStarted:
+        let wh = at(3).split('x')
+        if wh.len == 2:
+          result.frameWidth = intOf(wh[0])
+          result.frameHeight = intOf(wh[1])
+    of "notification":
+      result = DruidEvent(kind: ekNotification, raw: raw, notificationId: intOf(at(1)),
+                          interaction: at(2), notificationDetail: at(3))
+    of "alarm":
+      result = DruidEvent(kind: ekAlarm, raw: raw, alarmId: intOf(at(1)), alarmAtMs: int64Of(at(2)))
+    of "job":
+      result = DruidEvent(kind: ekJob, raw: raw, jobId: intOf(at(1)), jobRanAtMs: int64Of(at(2)))
+    of "incoming":
+      result = DruidEvent(kind: ekIncoming, raw: raw, incomingAction: at(1), incomingMime: at(2),
+                          incomingSubject: at(3), incomingText: at(4), incomingUrl: at(5))
+      for k in 6 ..< f.len: result.incomingFiles.add f[k]
+    of "ble":
+      result = DruidEvent(kind: ekBle, raw: raw, bleAddress: at(1), bleName: at(2), bleRssi: intOf(at(3)))
+      if at(4).startsWith("error:"): result.bleError = intOf(at(4)[6 .. ^1])
+      elif at(4).len > 0: result.bleServices = at(4).split(',')
     else:
       result = DruidEvent(kind: ekUnknown, raw: raw)
   except CatchableError:

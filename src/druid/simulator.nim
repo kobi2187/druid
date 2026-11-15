@@ -33,7 +33,7 @@
 ## tests/conformance.nim runs the same scenarios here and on Android
 ## (Robolectric) and requires the same results.
 
-import std/[tables, os, strutils, sets, sequtils]
+import std/[tables, os, strutils, sets, sequtils, times]
 import events, bridge
 
 type
@@ -50,6 +50,9 @@ type
     channel*, title*, text*: string
     ongoing*: bool
     progress*: int
+    autoCancel*: bool
+    actions*: seq[tuple[id, label: string]]
+    replyLabel*: string   ## non-empty: it has an inline reply
 
   SimCamera* = object
     id*: string
@@ -72,6 +75,24 @@ type
     operatorName*, countryIso*: string
     totalMemory*: int64
     memoryClassMb*: int
+
+  SimAlarm* = object
+    id*: int
+    atMs*: int64
+    title*, text*, channel*: string
+    exact*: bool
+
+  SimJob* = object
+    id*: int
+    periodMinutes*: int64  ## 0: once
+    notBeforeMs*: int64    ## Unix ms
+    network*: int          ## 0 none needed, 1 any, 2 unmetered
+    charging*: bool
+
+  SimBleDevice* = object
+    address*, name*: string
+    rssi*: int
+    services*: seq[string]
 
   PendingRequest = object
     id: int
@@ -111,6 +132,13 @@ type
     nightMode: bool
     lifecycle: string
     biometricOutcome: string
+    alarms: OrderedTable[int, SimAlarm]
+    exactAlarms: bool
+    jobs: OrderedTable[int, SimJob]
+    bleDevices: OrderedTable[string, SimBleDevice]
+    bleScan: tuple[on: bool, services: seq[string]]
+    bleReported: HashSet[string]
+    clockOffsetMs: int64
     pollHooks: seq[proc() {.closure.}]
 
 const
@@ -176,6 +204,8 @@ var sim {.threadvar.}: SimState
 var simReady {.threadvar.}: bool
 
 proc resolvePending()
+proc runTimers()
+proc simPermissionGranted*(p: string): bool
 
 proc freshState(p: DeviceProfile): SimState =
   result.profile = p
@@ -193,6 +223,7 @@ proc freshState(p: DeviceProfile): SimState =
   result.bluetoothOn = true
   result.nfcOn = "android.hardware.nfc" in p.features
   result.biometricOutcome = "succeeded"
+  result.exactAlarms = p.apiLevel < 31
 
 proc state*(): var SimState =
   ## The simulator's state, created on first use from `DRUID_DEVICE`.
@@ -202,6 +233,7 @@ proc state*(): var SimState =
     beforeLocalPoll = proc() {.nimcall, gcsafe.} =
       {.cast(gcsafe).}:
         resolvePending()
+        runTimers()
         for hook in sim.pollHooks: hook()
   sim
 
@@ -291,6 +323,146 @@ proc setBiometricOutcome*(_: Simulator, outcome: string) =
   ## What the next fingerprint prompt answers: "succeeded" (the default),
   ## "failed" (one bad try, the prompt stays), "cancelled" or "lockout".
   state().biometricOutcome = outcome
+
+# ---- what the user does outside the app: notifications, shares, time passing ----
+
+proc nowMs*(_: Simulator): int64 =
+  ## The simulated device's clock (Unix ms): the real one, plus `advanceClock`.
+  int64(epochTime() * 1000) + state().clockOffsetMs
+
+proc advanceClock*(_: Simulator, ms: int64) =
+  ## Time passes: alarms and jobs that come due fire at the next `pollEvents`.
+  state().clockOffsetMs += ms
+
+proc notification(id: int): SimNotification =
+  let s = addr state()
+  if id notin s.notifications:
+    raise newException(ValueError, "simulator: no notification " & $id & " is shown")
+  s.notifications[id]
+
+proc tapNotification*(_: Simulator, id: int) =
+  ## The user taps notification `id`: the app comes to the front with an
+  ## `ekNotification` "tap" event; it goes away if it was autoCancel.
+  let n = notification(id)
+  if n.autoCancel: state().notifications.del(id)
+  postLocal encodeEvent("notification", id, "tap", "")
+
+proc dismissNotification*(_: Simulator, id: int) =
+  ## The user swipes it away ("dismissed" event). Ongoing ones cannot be.
+  let n = notification(id)
+  if n.ongoing: raise newException(ValueError, "simulator: notification " & $id & " is ongoing; it cannot be swiped away")
+  state().notifications.del(id)
+  postLocal encodeEvent("notification", id, "dismissed", "")
+
+proc pressAction*(_: Simulator, id: int, actionId: string) =
+  ## The user presses one of its buttons ("action" event with the button's id).
+  let n = notification(id)
+  if n.actions.allIt(it.id != actionId):
+    raise newException(ValueError, "simulator: notification " & $id & " has no button " & actionId)
+  postLocal encodeEvent("notification", id, "action", actionId)
+
+proc reply*(_: Simulator, id: int, text: string) =
+  ## The user types `text` in its inline reply ("reply" event); it goes away.
+  let n = notification(id)
+  if n.replyLabel.len == 0 or state().profile.apiLevel < 24:
+    raise newException(ValueError, "simulator: notification " & $id & " has no inline reply")
+  state().notifications.del(id)
+  postLocal encodeEvent("notification", id, "reply", text)
+
+proc share*(_: Simulator, text = "", subject = "", mime = "text/plain", files: openArray[string] = []) =
+  ## Another app shares with this one (ACTION_SEND / SEND_MULTIPLE): an
+  ## `ekIncoming` "send" event. Files are copied, as Android's are, into the
+  ## cache's druid_incoming directory.
+  var f = @["send", mime, subject, text, ""]
+  if files.len > 0:
+    let dir = getTempDir() / "druid_incoming"
+    createDir(dir)
+    for src in files:
+      try:
+        var dest = dir / src.extractFilename
+        var n = 2
+        while fileExists(dest):
+          dest = dir / ($n & "-" & src.extractFilename)
+          inc n
+        copyFile(src, dest)
+        f.add dest
+      except OSError as e:
+        f.add "!" & e.msg
+  postLocal encodeEvent("incoming", f)
+
+proc openLink*(_: Simulator, url: string, mime = "") =
+  ## A link opened with this app (ACTION_VIEW): an `ekIncoming` "view" event.
+  postLocal encodeEvent("incoming", "view", mime, "", "", url)
+
+proc setExactAlarmsAllowed*(_: Simulator, on: bool) =
+  ## SCHEDULE_EXACT_ALARM granted in Settings (Android 12+; always before).
+  state().exactAlarms = on or state().profile.apiLevel < 31
+
+proc fireAlarm*(_: Simulator, id: int) =
+  ## Alarm `id` goes off now, whatever time it was set for.
+  let s = addr state()
+  if id notin s.alarms: raise newException(ValueError, "simulator: no alarm " & $id)
+  let a = s.alarms[id]
+  s.alarms.del(id)
+  if a.title.len > 0:
+    let ch = if a.channel.len > 0: a.channel else: "druid_default"
+    if s.profile.apiLevel >= 26: s.channels.incl ch
+    if simPermissionGranted("android.permission.POST_NOTIFICATIONS"):
+      s.notifications[id] = SimNotification(id: id, channel: ch, title: a.title, text: a.text,
+                                            progress: -1, autoCancel: true)
+      stderr.writeLine "[notification ", id, "] ", a.title, ": ", a.text
+  postLocal encodeEvent("alarm", id, a.atMs)
+
+proc runJob*(_: Simulator, id: int) =
+  ## Job `id` runs now, whatever its conditions (as `adb shell cmd jobscheduler run`).
+  let s = addr state()
+  if id notin s.jobs: raise newException(ValueError, "simulator: no job " & $id)
+  let now = simulator().nowMs
+  let j = s.jobs[id]
+  if j.periodMinutes > 0: s.jobs[id].notBeforeMs = now + j.periodMinutes * 60_000
+  else: s.jobs.del(id)
+  postLocal encodeEvent("job", id, now)
+
+proc jobConditionsMet(j: SimJob): bool =
+  let s = addr state()
+  (j.network == 0 or (s.network.connected and (j.network == 1 or not s.network.metered))) and
+    (not j.charging or s.battery.charging)
+
+proc runTimers() =
+  ## Alarms and jobs that are due, at a poll: as the system would wake the app.
+  let s = addr state()
+  let now = simulator().nowMs
+  var due: seq[int]
+  for id, a in s.alarms:
+    if a.atMs <= now: due.add id
+  for id in due: simulator().fireAlarm(id)
+  var ready: seq[int]
+  for id, j in s.jobs:
+    if j.notBeforeMs <= now and jobConditionsMet(j): ready.add id
+  for id in ready: simulator().runJob(id)
+  if s.bleScan.on:
+    for address, d in s.bleDevices:
+      if address in s.bleReported: continue
+      if s.bleScan.services.len > 0 and not s.bleScan.services.anyIt(it.toLowerAscii in d.services.mapIt(it.toLowerAscii)):
+        continue
+      s.bleReported.incl address
+      postLocal encodeEvent("ble", address, d.name, d.rssi, d.services.join(","))
+
+proc addBleDevice*(_: Simulator, address: string, name = "", rssi = -60, services: openArray[string] = []) =
+  ## A Bluetooth LE device advertising nearby: an `ekBle` event at the next
+  ## poll while a scan that matches it runs. Again with another RSSI: it moved.
+  let s = addr state()
+  s.bleDevices[address] = SimBleDevice(address: address, name: name, rssi: rssi, services: @services)
+  s.bleReported.excl address
+
+proc removeBleDevice*(_: Simulator, address: string) =
+  state().bleDevices.del(address)
+  state().bleReported.excl address
+
+proc setBluetoothEnabled*(_: Simulator, on: bool) =
+  ## Bluetooth switched off: a running scan stops seeing devices.
+  state().bluetoothOn = on
+  if not on: state().bleScan.on = false
 
 proc trimMemory*(_: Simulator, level: int) =
   postLocal encodeEvent("memory", level)
@@ -443,3 +615,12 @@ proc simOnPoll*(hook: proc() {.closure.}) =
   ## simulated service finishes work in the background.
   state().pollHooks.add hook
 proc simLifecycle*(): string = state().lifecycle
+proc simAlarms*(): var OrderedTable[int, SimAlarm] = state().alarms
+proc simExactAlarms*(): bool = state().exactAlarms
+proc simJobs*(): var OrderedTable[int, SimJob] = state().jobs
+proc simStartBleScan*(services: openArray[string]) =
+  let s = addr state()
+  s.bleScan = (true, @services)
+  s.bleReported.clear()
+proc simStopBleScan*() = state().bleScan.on = false
+proc simBleScanning*(): bool = state().bleScan.on

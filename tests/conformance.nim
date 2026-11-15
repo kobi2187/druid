@@ -13,7 +13,12 @@
 ## next request shows a dialog), "answer allow" / "answer deny", "network KIND
 ## CONNECTED METERED", "battery LEVEL CHARGING PLUGGED", "sensor add TYPE",
 ## "sensor TYPE V...", "provider NAME on|off", "fix LAT LON ACCURACY", "disk"
-## (a disk with free space: Robolectric has none until told), "idle".
+## (a disk with free space: Robolectric has none until told), "idle", "camera"
+## (a back camera "0" mounted at 90 degrees, as the simulated phone's), "tap N",
+## "press N ACTION", "dismiss N", "reply N TEXT" (the user and notification N),
+## "share TEXT" (another app shares text), "link URL", "fire N" (alarm N goes
+## off), "run N" (job N runs), "exact on|off" (the exact-alarm grant), "ble
+## ADDRESS RSSI" (an advertisement while scanning), "bluetooth on|off".
 
 import std/[options, strutils, tables, os]
 import ../src/druid
@@ -188,6 +193,114 @@ scenario "storage":
   expect(readFile(path) == "same everywhere", "file")
   expect(storage().freeBytes(storage().filesDir) > 0, "free bytes")
   expect(storage().totalBytes(storage().filesDir) >= storage().freeBytes(storage().filesDir), "total bytes")
+
+
+scenario "camera-permission":
+  arrange("camera")
+  arrange("deny CAMERA")
+  var refused = false
+  try: discard camera().takePhoto(storage().cacheDir / "conf.jpg")
+  except DruidPermissionError: refused = true
+  expect(refused, "a photo without CAMERA")
+  refused = false
+  try: discard camera().startFrames()
+  except DruidPermissionError: refused = true
+  expect(refused, "frames without CAMERA")
+  expect(not camera().isStreaming, "streaming after a refusal")
+
+scenario "camera-frames":
+  arrange("camera")
+  arrange("grant CAMERA")
+  let req = camera().startFrames(width = 640, height = 480)
+  arrange("idle")
+  var started = false
+  for ev in pollEvents():
+    if ev.kind == ekCamera and ev.cameraRequestId == req.id:
+      started = ev.cameraStarted and ev.frameWidth == 640 and ev.frameHeight == 480
+  expect(started, "no ekCamera started 640x480")
+  expect(camera().isStreaming, "not streaming")
+  camera().stopFrames()
+  expect(not camera().isStreaming, "streaming after stop")
+  expect(camera().latestFrame.isNone, "a frame after stop")
+
+proc interactions(): seq[string] =
+  for ev in pollEvents():
+    if ev.kind == ekNotification:
+      result.add $ev.notificationId & " " & ev.interaction & " " & ev.notificationDetail
+
+scenario "notification-interactions":
+  arrange("grant POST_NOTIFICATIONS")
+  notifications().cancelAll()
+  notifications().show(21, "Ping", "There?", actions = [("yes", "Yes"), ("no", "No")], reply = "Answer")
+  arrange("press 21 no")
+  arrange("reply 21 later")
+  expect(21 notin notifications().active, "still shown after the reply")
+  notifications().show(22, "Tap", "me")
+  arrange("tap 22")
+  expect(22 notin notifications().active, "autoCancel: still shown after the tap")
+  notifications().show(23, "Swipe", "me", autoCancel = false)
+  arrange("dismiss 23")
+  let got = interactions()
+  expect(got == @["21 action no", "21 reply later", "22 tap ", "23 dismissed "], "interactions: " & $got)
+  notifications().cancelAll()
+
+scenario "alarms":
+  arrange("grant POST_NOTIFICATIONS")
+  arrange("exact off")
+  expect(not alarms().canBeExact, "exact alarms without the grant")
+  let at = nowMs() + 3_600_000
+  expect(not alarms().set(31, at, "Wake", "up", exact = true), "set exactly without the grant")
+  arrange("exact on")
+  expect(alarms().set(32, at + 1, exact = true), "not exact with the grant")
+  expect(alarms().pending == @[31, 32], "pending: " & $alarms().pending)
+  arrange("fire 31")
+  var fired: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekAlarm: fired.add $ev.alarmId & "@" & $(ev.alarmAtMs - at)
+  expect(fired == @["31@0"], "fired: " & $fired)
+  expect(31 in notifications().active, "the alarm's notification")
+  expect(alarms().pending == @[32], "pending after firing: " & $alarms().pending)
+  alarms().cancel(32)
+  expect(alarms().pending.len == 0, "pending after cancel")
+  notifications().cancelAll()
+
+scenario "jobs":
+  jobs().cancelAll()
+  expect(jobs().schedule(41, periodMinutes = 60, network = jnUnmetered), "periodic")
+  expect(jobs().schedule(42, delayMs = 3_600_000, charging = true), "once")
+  expect(jobs().scheduled == @[41, 42], "scheduled: " & $jobs().scheduled)
+  arrange("run 41")
+  var ran: seq[int]
+  for ev in pollEvents():
+    if ev.kind == ekJob: ran.add ev.jobId
+  expect(ran == @[41], "ran: " & $ran)
+  jobs().cancel(42)
+  expect(jobs().scheduled == @[41], "after cancel: " & $jobs().scheduled)
+  jobs().cancelAll()
+
+scenario "incoming":
+  arrange("share hello from elsewhere")
+  arrange("link https://nim-lang.org/docs")
+  var got: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekIncoming:
+      got.add ev.incomingAction & "|" & ev.incomingMime & "|" & ev.incomingText & "|" & ev.incomingUrl &
+              "|" & $ev.incomingFiles.len
+  expect(got == @["send|text/plain|hello from elsewhere||0", "view|||https://nim-lang.org/docs|0"], "incoming: " & $got)
+
+scenario "ble":
+  arrange("grant BLUETOOTH_SCAN")
+  arrange("grant ACCESS_FINE_LOCATION")
+  arrange("bluetooth on")
+  bluetooth().startScan(minIntervalMs = 0)
+  expect(bluetooth().isScanning, "not scanning")
+  arrange("ble AA:BB:CC:DD:EE:01 -55")
+  var seen: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekBle: seen.add ev.bleAddress & " " & $ev.bleRssi
+  expect(seen == @["AA:BB:CC:DD:EE:01 -55"], "seen: " & $seen)
+  bluetooth().stopScan()
+  expect(not bluetooth().isScanning, "scanning after stop")
 
 proc runScenario*(name: string, arrange: Arrange): string =
   ## "ok", or the problems, one per line.

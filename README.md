@@ -32,7 +32,7 @@ See [Developing on the desktop](#developing-on-the-desktop).
 | permissions | `permissions()` | check, request (works from a NativeActivity), status, rationale, groups |
 | clipboard | `clipboard()` | text copy / paste / clear |
 | vibration | `vibration()` | one-shot, amplitude, patterns, predefined effects |
-| notifications | `notifications()` | channels, show/replace, progress, ongoing, cancel, active ids |
+| notifications | `notifications()` | channels, show/replace, progress, ongoing, buttons, inline reply, cancel, active ids; taps, presses, replies and dismissals as events |
 | connectivity | `connectivity()` | connected, network type, metered, change monitoring |
 | power | `power()` | battery level/charging/temperature, power save, doze, thermal, wake locks |
 | storage | `storage()` | files/cache/no-backup/external dirs, free and total space |
@@ -45,6 +45,10 @@ See [Developing on the desktop](#developing-on-the-desktop).
 | prefs | `prefs()` | persistent key-value settings (SharedPreferences) |
 | crypto | `crypto()` | SHA-*, HMAC, secure random, UUID, Base64 |
 | hardware | `telephony()`, `bluetooth()`, `nfc()`, `camera()` | presence/state, camera facts, torch |
+| capture | `camera()` | take a photo to a JPEG file; stream frames (I420, newest only) and convert to RGBA; no camera UI |
+| background | `alarms()`, `jobs()` | alarms at a time (with a notification, kept across reboots); JobScheduler jobs on network/charging conditions |
+| incoming | `incoming()` | text, files and links other apps share with or open in the app, as events (files copied to the cache) |
+| ble | `bluetooth()` | Bluetooth LE scanning with service filters, throttled per device |
 | media | `player()`, `biometric()`, `downloads()`, `memory()` | audio playback, BiometricPrompt, DownloadManager, memory info |
 | log, ndk | `logInfo` ..., `systemProperty`, `ndkApiLevel` | logcat; NDK-only facts |
 
@@ -64,6 +68,11 @@ Android device (`src/druid/simulator.nim`), not to stand-ins.
 - On API 33+, notifications are dropped without `POST_NOTIFICATIONS`.
 - Network, sensor, location and lifecycle changes are events only while the
   app monitors them.
+- The camera needs `CAMERA` (it takes a test card and streams a moving test
+  pattern); BLE scans need `BLUETOOTH_SCAN` on API 31+ (fine location before)
+  and Bluetooth on; exact alarms need the user's grant on API 31+.
+- Alarms fire and jobs run at the poll after they come due on the simulator's
+  clock, and jobs only while their network and charging conditions hold.
 
 **You choose the device:** `DRUID_DEVICE` is `phone` (Pixel 7, API 34,
 1080×2400 at 420 dpi; the default), `small` (API 28, 720×1280) or `tablet`.
@@ -79,6 +88,10 @@ simulator().setSensor(ord(stLight), [320'f32])
 simulator().setBattery(15, charging = true, plugged = "usb")
 simulator().lifecycle("paused")
 simulator().setPermissionPolicy(ppDeny)
+simulator().tapNotification(7)              # also pressAction, reply, dismissNotification
+simulator().share(text = "hi", files = ["photo.jpg"])   # another app shares; openLink(url)
+simulator().advanceClock(3_600_000)         # an hour passes: alarms and jobs come due
+simulator().addBleDevice("AA:BB:CC:00:00:01", "Band", rssi = -50)
 ```
 
 and see what the app did with `simulator().notificationsShown`, `.vibrations`,
@@ -93,11 +106,40 @@ and see what the app did with `simulator().notificationsShown`, `.vibrations`,
 **Real work, same results:** digests and HMACs give the same bytes as
 Android's providers, downloads really download, and prefs persist.
 
-**It is checked against Android:** `tests/conformance.nim` holds 14 scenarios:
-permission allow/deny/already granted, notifications, clipboard, prefs,
-crypto, connectivity, sensors, location, battery, wake locks, argument
-rules and storage. The suite runs on the simulator and, through JNI, on
+**It is checked against Android:** `tests/conformance.nim` holds 21 scenarios:
+permission allow/deny/already granted, notifications and their taps, buttons,
+replies and dismissals, clipboard, prefs, crypto, connectivity, sensors,
+location, battery, wake locks, argument rules, storage, the camera's
+permission and frames, alarms, jobs, shares and links, and BLE scans. The suite runs on the simulator and, through JNI, on
 Robolectric's Android, and both must pass.
+
+## When the app is not in front
+
+Some things happen while the app's Nim code is not running: an alarm goes off,
+a job runs, the user presses a notification's button. Druid's receivers and
+job service store each as an event, and the app gets it at its next
+`pollEvents` -- the same events as when it is running:
+
+```nim
+notifications().show(7, "New message", "Hi!", actions = [("read", "Mark read")], reply = "Reply")
+alarms().set(1, nowMs() + 3_600_000, "Stretch", "Time to get up")
+jobs().schedule(2, periodMinutes = 60, network = jnUnmetered)
+
+for ev in pollEvents():
+  case ev.kind
+  of ekNotification: echo ev.notificationId, " ", ev.interaction, " ", ev.notificationDetail
+  of ekAlarm: echo "alarm ", ev.alarmId
+  of ekJob: sync()
+  of ekIncoming: echo ev.incomingAction, " ", ev.incomingText, " ", ev.incomingFiles
+  else: discard
+```
+
+What launched the Activity (a notification tap, a share, a link) is read when
+Druid starts. For Intents that reach an Activity already running, the
+Activity calls `Druid.newIntent(this, intent)` from `onNewIntent`; the
+template's `MainActivity` does, and is `singleTask`. Which shares and links
+the app receives is up to its manifest: the template has the intent filters,
+commented out.
 
 ## How it works
 
@@ -224,8 +266,8 @@ same stages, one job each.
 
 | Stage | What runs |
 |---|---|
-| `host` | The Nim API without a JVM: `test_host.nim` (event decoding, UTF-8/16, JNI signatures), `test_simulation.nim` (the simulated device follows Android's rules), `test_conformance.nim` (the 14 shared scenarios on the simulator), and `tools/check_api_coverage.py`, which fails if any exported API proc is not called by a test. |
-| `android` | **Robolectric**, with three kinds of test. First, a test class per Java service, each run on Android 7.0, 9, 11, 13 and 16 (API 24/28/30/33/36: 504 runs, 98% line coverage, report under `android/druid/build/reports/coverage/`). Second, the Nim harness built for the host and run through JNI against Robolectric's Android, including the 14 conformance scenarios (arranged with shadows by `Arranger.java`). Third, the sample app's tests. **SDK** 36, AGP 9.1. **NDK** r28c: the sample is built for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and is 16 KB-aligned. |
+| `host` | The Nim API without a JVM: `test_host.nim` (event decoding, UTF-8/16, JNI signatures), `test_simulation.nim` (the simulated device follows Android's rules), `test_conformance.nim` (the 21 shared scenarios on the simulator), and `tools/check_api_coverage.py`, which fails if any exported API proc is not called by a test. |
+| `android` | **Robolectric**, with three kinds of test. First, a test class per Java service, each run on Android 7.0, 9, 11, 13 and 16 (API 24/28/30/33/36: 706 runs, 92% line coverage, report under `android/druid/build/reports/coverage/`). Second, the Nim harness built for the host and run through JNI against Robolectric's Android, including the 21 conformance scenarios (arranged with shadows by `Arranger.java`). Third, the sample app's tests. **SDK** 36, AGP 9.1. **NDK** r28c: the sample is built for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and is 16 KB-aligned. |
 | `rui` | `test_rui.nim` drives the demo through RUI's UI harness: buttons, the permission flow, and the desktop permission dialog. The demo is laid out headless, built into `libmain.so` with RUI, and packaged in `android/rui-demo` (Robolectric tests of the RuiActivity/Druid seam). A new app is generated from the template and built and tested. |
 
 ### On a device or emulator

@@ -32,7 +32,10 @@ public final class Arranger {
     private Arranger() {}
 
     private static Application app() { return ApplicationProvider.getApplicationContext(); }
-    private static void idle() { shadowOf(Looper.getMainLooper()).idle(); }
+    private static void idle() {
+        shadowOf(CameraCapture.handler().getLooper()).idle();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
 
     public static void arrange(String what) {
         String[] w = what.trim().split("\\s+");
@@ -54,6 +57,24 @@ public final class Arranger {
             case "disk":
                 org.robolectric.shadows.ShadowStatFs.registerStats(app.getFilesDir(), 1000, 500, 400);
                 break;
+            case "camera": camera(); break;
+            case "tap": tap(Integer.parseInt(w[1])); break;
+            case "press": press(Integer.parseInt(w[1]), w[2]); break;
+            case "dismiss": dismiss(Integer.parseInt(w[1])); break;
+            case "reply": reply(Integer.parseInt(w[1]), what.trim().split("\\s+", 3)[2]); break;
+            case "share":
+                launch(new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, what.trim().split("\\s+", 2)[1]));
+                break;
+            case "link": launch(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(w[1]))); break;
+            case "fire": Alarms.fire(app, Integer.parseInt(w[1])); break;
+            case "run": Robolectric.setupService(DruidJobService.class).ran(Integer.parseInt(w[1])); break;
+            case "exact": org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(w[1].equals("on")); break;
+            case "bluetooth":
+                shadowOf(((android.bluetooth.BluetoothManager) app.getSystemService(Context.BLUETOOTH_SERVICE))
+                    .getAdapter()).setEnabled(w[1].equals("on"));
+                break;
+            case "ble": ble(w[1], Integer.parseInt(w[2])); break;
             default: throw new IllegalArgumentException("unknown arrangement " + what);
         }
     }
@@ -125,5 +146,90 @@ public final class Arranger {
         l.setTime(System.currentTimeMillis());
         shadowOf((LocationManager) app().getSystemService(Context.LOCATION_SERVICE)).simulateLocation(l);
         idle();
+    }
+
+    // ---- the camera, notifications, other apps, BLE ----
+
+    private static void camera() {
+        android.hardware.camera2.CameraManager cm =
+            (android.hardware.camera2.CameraManager) app().getSystemService(Context.CAMERA_SERVICE);
+        android.hardware.camera2.CameraCharacteristics c =
+            org.robolectric.shadows.ShadowCameraCharacteristics.newCameraCharacteristics();
+        shadowOf(c).set(android.hardware.camera2.CameraCharacteristics.LENS_FACING,
+                        android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK);
+        shadowOf(c).set(android.hardware.camera2.CameraCharacteristics.SENSOR_ORIENTATION, 90);
+        try { shadowOf(cm).addCamera("0", c); }
+        catch (IllegalArgumentException alreadyThere) {}
+    }
+
+    private static android.app.NotificationManager nm() {
+        return (android.app.NotificationManager) app().getSystemService(Context.NOTIFICATION_SERVICE);
+    }
+
+    private static android.app.Notification shown(int id) {
+        android.app.Notification n = shadowOf(nm()).getNotification(id);
+        if (n == null) throw new IllegalStateException("notification " + id + " is not shown");
+        return n;
+    }
+
+    private static void send(android.app.PendingIntent p, Intent fill) {
+        try { p.send(app(), 0, fill); } catch (android.app.PendingIntent.CanceledException e) { throw new RuntimeException(e); }
+        idle();
+    }
+
+    /** The user taps it: the system opens the app with its content Intent (and takes an autoCancel one down). */
+    private static void tap(int id) {
+        android.app.Notification n = shown(id);
+        if ((n.flags & android.app.Notification.FLAG_AUTO_CANCEL) != 0) nm().cancel(id);
+        // Robolectric's test app has no launcher Activity, so no content Intent: the one it would carry.
+        launch(n.contentIntent != null ? shadowOf(n.contentIntent).getSavedIntent()
+               : new Intent(Intent.ACTION_MAIN).putExtra(Notifications.EXTRA_TAP, id));
+    }
+
+    private static void press(int id, String actionId) {
+        for (android.app.Notification.Action a : shown(id).actions) {
+            Intent saved = shadowOf(a.actionIntent).getSavedIntent();
+            if (DruidNotificationReceiver.ACTION.equals(saved.getAction())
+                    && actionId.equals(saved.getStringExtra(DruidNotificationReceiver.EXTRA_ACTION))) {
+                send(a.actionIntent, null);
+                return;
+            }
+        }
+        throw new IllegalStateException("notification " + id + " has no button " + actionId);
+    }
+
+    private static void dismiss(int id) {
+        android.app.Notification n = shown(id);
+        nm().cancel(id);
+        send(n.deleteIntent, null);
+    }
+
+    private static void reply(int id, String text) {
+        for (android.app.Notification.Action a : shown(id).actions) {
+            if (a.getRemoteInputs() == null) continue;
+            Intent fill = new Intent();
+            android.os.Bundle typed = new android.os.Bundle();
+            typed.putCharSequence(DruidNotificationReceiver.REPLY_KEY, text);
+            android.app.RemoteInput.addResultsToIntent(a.getRemoteInputs(), fill, typed);
+            send(a.actionIntent, fill);
+            return;
+        }
+        throw new IllegalStateException("notification " + id + " has no reply");
+    }
+
+    /** Another app (or the launcher) starts the app's Activity with {@code i}. */
+    private static void launch(Intent i) {
+        Robolectric.buildActivity(android.app.Activity.class, i).create().start().resume();
+        idle();
+    }
+
+    private static void ble(String address, int rssi) {
+        android.bluetooth.BluetoothAdapter a =
+            ((android.bluetooth.BluetoothManager) app().getSystemService(Context.BLUETOOTH_SERVICE)).getAdapter();
+        org.robolectric.shadows.ShadowBluetoothLeScanner sc =
+            org.robolectric.shadow.api.Shadow.extract(a.getBluetoothLeScanner());
+        for (android.bluetooth.le.ScanCallback cb : sc.getScanCallbacks()) {
+            cb.onScanResult(1, new android.bluetooth.le.ScanResult(a.getRemoteDevice(address), null, rssi, 0));
+        }
     }
 }

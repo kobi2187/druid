@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
@@ -59,6 +60,7 @@ public final class Druid {
         app = newApp;
         if (ctx instanceof Activity && !(ctx instanceof DruidPermissionActivity)) {
             current = new WeakReference<>((Activity) ctx);
+            examine((Activity) ctx);      // started from a notification, a share, a link?
         }
         if (app instanceof Application && registeredOn != app) {
             Application a = (Application) app;
@@ -66,6 +68,64 @@ public final class Druid {
             a.registerComponentCallbacks(new Trim());
             registeredOn = a;
         }
+        drainInbox();
+    }
+
+    // ---- what launched an Activity: a notification tap, a share, a link ----
+
+    static final String EXTRA_CONSUMED = "dev.druid.consumed";
+
+    /** Reports, once, what an Activity was started with. */
+    static void examine(Activity a) {
+        Intent i = a.getIntent();
+        if (i == null || i.getBooleanExtra(EXTRA_CONSUMED, false)) return;
+        i.putExtra(EXTRA_CONSUMED, true);
+        if (i.hasExtra(Notifications.EXTRA_TAP)) {
+            post("notification", i.getIntExtra(Notifications.EXTRA_TAP, 0), "tap", "");
+        }
+        Incoming.read(i);
+    }
+
+    /**
+     * Call from your Activity's onNewIntent: an Intent delivered to a running
+     * Activity (a second share, a tap on a notification while the app is open).
+     */
+    public static void newIntent(Activity a, Intent i) {
+        a.setIntent(i);
+        if (app == null) init(a);      // examines it
+        else examine(a);
+    }
+
+    // ---- the inbox: events that happen while no Nim code is running ----
+
+    private static final String INBOX = "dev.druid.inbox";
+    private static final char RECORD = '\u001e';
+
+    /**
+     * Like {@link #post}, but kept until the Nim side reads it even if this
+     * process has none running now (a broadcast in the background, a job):
+     * stored, and delivered when Druid next starts.
+     */
+    static synchronized void postDurable(Context ctx, String kind, Object... fields) {
+        if (wakeRegistered) { post(kind, fields); return; }
+        StringBuilder b = new StringBuilder(kind);
+        for (Object f : fields) b.append(SEP).append(f == null ? "" : String.valueOf(f));
+        android.content.SharedPreferences sp = ctx.getSharedPreferences(INBOX, Context.MODE_PRIVATE);
+        String old = sp.getString("events", "");
+        sp.edit().putString("events", old.isEmpty() ? b.toString() : old + RECORD + b).commit();
+    }
+
+    /** Moves stored events into the queue. */
+    static synchronized void drainInbox() {
+        android.content.SharedPreferences sp = context().getSharedPreferences(INBOX, Context.MODE_PRIVATE);
+        String all = sp.getString("events", "");
+        if (all.isEmpty()) return;
+        sp.edit().remove("events").commit();
+        for (String e : all.split(String.valueOf(RECORD))) {
+            events.add(e);
+            queued.incrementAndGet();
+        }
+        nativeWake();
     }
 
     public static boolean isInitialized() { return app != null; }
@@ -117,7 +177,10 @@ public final class Druid {
     // The Nim side registers this (RegisterNatives) to wake its loop when an
     // event arrives. Until it does, calling it would throw; so ask first.
     private static volatile boolean wakeRegistered;
-    public static void setWakeRegistered(boolean on) { wakeRegistered = on; }
+    public static void setWakeRegistered(boolean on) {
+        wakeRegistered = on;
+        if (on && app != null) drainInbox();      // the Nim side is here: hand over what waited
+    }
     private static native void wake();
     private static void nativeWake() {
         if (!wakeRegistered) return;
@@ -170,9 +233,17 @@ public final class Druid {
             post("lifecycle", what, a.getClass().getName());
         }
         private void makeCurrent(Activity a) { if (!ours(a)) current = new WeakReference<>(a); }
-        @Override public void onActivityCreated(Activity a, Bundle b) { makeCurrent(a); note(a, "created"); }
+        @Override public void onActivityCreated(Activity a, Bundle b) {
+            makeCurrent(a);
+            note(a, "created");
+            if (!ours(a)) examine(a);
+        }
         @Override public void onActivityStarted(Activity a) { note(a, "started"); }
-        @Override public void onActivityResumed(Activity a) { makeCurrent(a); note(a, "resumed"); }
+        @Override public void onActivityResumed(Activity a) {
+            makeCurrent(a);
+            note(a, "resumed");
+            if (!ours(a)) examine(a);
+        }
         @Override public void onActivityPaused(Activity a) { note(a, "paused"); }
         @Override public void onActivityStopped(Activity a) { note(a, "stopped"); }
         @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}

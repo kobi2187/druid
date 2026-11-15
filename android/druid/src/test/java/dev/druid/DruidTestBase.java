@@ -43,6 +43,7 @@ public abstract class DruidTestBase {
 
     /** The queued events of `kind`, each split into its fields (the kind first). */
     protected List<String[]> events(String kind) {
+        Druid.drainInbox();                     // what receivers and jobs stored (no Nim side here)
         List<String[]> out = new ArrayList<>();
         for (String e : Druid.pollEvents()) {
             String[] f = e.split(String.valueOf(Druid.SEP), -1);
