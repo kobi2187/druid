@@ -83,7 +83,28 @@ public final class Druid {
         if (i.hasExtra(Notifications.EXTRA_TAP)) {
             post("notification", i.getIntExtra(Notifications.EXTRA_TAP, 0), "tap", "");
         }
-        Incoming.read(i);
+        if (i.hasExtra("google.message_id")) opened(i);
+        else Incoming.read(i);
+    }
+
+    /** A push message's notification was tapped: Firebase puts the message in the launch Intent's extras. */
+    static void opened(Intent i) {
+        ArrayList<Object> f = new ArrayList<>();
+        f.add("opened");
+        f.add(i.getStringExtra("from"));
+        f.add(i.getStringExtra("google.message_id"));
+        f.add("");
+        f.add("");
+        Bundle b = i.getExtras();
+        java.util.List<String> keys = new ArrayList<>(b.keySet());
+        java.util.Collections.sort(keys);
+        for (String k : keys) {
+            if (k.startsWith("google.") || k.startsWith("gcm.") || k.equals("from") || k.equals("collapse_key")
+                || k.equals(EXTRA_CONSUMED)) continue;
+            Object v = b.get(k);
+            if (v instanceof String) { f.add(k); f.add(v); }
+        }
+        post("push", f.toArray());
     }
 
     /**

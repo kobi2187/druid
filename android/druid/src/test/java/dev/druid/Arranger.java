@@ -74,6 +74,17 @@ public final class Arranger {
                 shadowOf(((android.bluetooth.BluetoothManager) app.getSystemService(Context.BLUETOOTH_SERVICE))
                     .getAdapter()).setEnabled(w[1].equals("on"));
                 break;
+            case "services": services(); break;
+            case "software": softwareKeystore(); break;
+            case "tts": tts(w); break;
+            case "hear": heard = what.trim().split("\\s+", 2)[1]; break;
+            case "listened": listened(); break;
+            case "nfc": nfc(); break;
+            case "tag":
+                NfcReader.report(w[1], "NfcA,Ndef", new android.nfc.NdefMessage(
+                    w[2].equals("uri") ? android.nfc.NdefRecord.createUri(w[3])
+                                       : android.nfc.NdefRecord.createTextRecord("en", w[3])));
+                break;
             case "ble": ble(w[1], Integer.parseInt(w[2])); break;
             default: throw new IllegalArgumentException("unknown arrangement " + what);
         }
@@ -231,5 +242,71 @@ public final class Arranger {
         for (android.bluetooth.le.ScanCallback cb : sc.getScanCallbacks()) {
             cb.onScanResult(1, new android.bluetooth.le.ScanResult(a.getRemoteDevice(address), null, rssi, 0));
         }
+    }
+
+    // ---- services the system runs, the keystore, speech, NFC ----
+
+    private static final java.util.ArrayList<org.robolectric.android.controller.ServiceController<?>> running =
+        new java.util.ArrayList<>();
+
+    /** The system starts the services the app asked for, and stops the ones it stopped. */
+    private static void services() {
+        for (Intent i; (i = shadowOf(app()).getNextStartedService()) != null; ) {
+            if (DruidForegroundService.class.getName().equals(i.getComponent().getClassName())) {
+                running.add(Robolectric.buildService(DruidForegroundService.class, i).create().startCommand(0, 1));
+            }
+        }
+        if (shadowOf(app()).getNextStoppedService() != null) {
+            for (org.robolectric.android.controller.ServiceController<?> c : running) c.destroy();
+            running.clear();
+        }
+        idle();
+    }
+
+    private static void softwareKeystore() {
+        try {
+            javax.crypto.KeyGenerator g = javax.crypto.KeyGenerator.getInstance("AES");
+            g.init(256);
+            javax.crypto.SecretKey k = g.generateKey();
+            SecureStore.keys = () -> k;
+        } catch (java.security.GeneralSecurityException e) { throw new RuntimeException(e); }
+    }
+
+    private static void tts(String[] w) {
+        android.speech.tts.TextToSpeech t = org.robolectric.shadows.ShadowTextToSpeech.getLastTextToSpeechInstance();
+        org.robolectric.shadows.ShadowTextToSpeech s = shadowOf(t);
+        if (w[1].equals("init")) {
+            s.getOnInitListener().onInit(android.speech.tts.TextToSpeech.SUCCESS);
+        } else {
+            s.getUtteranceProgressListener().onStart(w[2]);
+            s.getUtteranceProgressListener().onDone(w[2]);
+        }
+    }
+
+    private static String heard = "";
+
+    /** The recognizer heard what "hear" said: ready, the first word, the end, the result. */
+    private static void listened() {
+        idle();
+        org.robolectric.shadows.ShadowSpeechRecognizer s = org.robolectric.shadow.api.Shadow.extract(
+            org.robolectric.shadows.ShadowSpeechRecognizer.getLatestSpeechRecognizer());
+        s.triggerOnReadyForSpeech(new android.os.Bundle());
+        s.triggerOnPartialResults(texts(heard.split("\\s+")[0]));
+        s.triggerOnEndOfSpeech();
+        s.triggerOnResults(texts(heard));
+    }
+
+    private static android.os.Bundle texts(String t) {
+        android.os.Bundle b = new android.os.Bundle();
+        b.putStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION,
+                             new java.util.ArrayList<>(java.util.Collections.singletonList(t)));
+        return b;
+    }
+
+    private static void nfc() {
+        org.robolectric.shadows.ShadowNfcAdapter.setNfcHardwareExists(true);
+        shadowOf(app().getPackageManager()).setSystemFeature(PackageManager.FEATURE_NFC, true);
+        Robolectric.buildActivity(android.app.Activity.class).setup();
+        shadowOf(android.nfc.NfcAdapter.getDefaultAdapter(app())).setEnabled(true);
     }
 }

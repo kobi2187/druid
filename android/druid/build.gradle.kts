@@ -6,6 +6,7 @@
 plugins {
     id("com.android.library")
     jacoco
+    `maven-publish`
 }
 
 android {
@@ -15,6 +16,9 @@ android {
         minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    publishing {
+        singleVariant("release") { withSourcesJar() }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -87,5 +91,36 @@ tasks.withType<Test>().configureEach {
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+// Druid's version, from druid.nimble (one place for both halves).
+val druidVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"""")
+    .find(file("../../druid.nimble").readText())!!.groupValues[1]
+
+// ../tools/publish_maven.sh: dev.druid:druid:<version> into android/build/maven,
+// a Maven repository to upload or to point an app's build at.
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                groupId = "dev.druid"
+                artifactId = "druid"
+                version = druidVersion
+                from(components["release"])
+                pom {
+                    name = "druid"
+                    description = "Druid: Android's services for Nim programs (the Java side)"
+                    url = "https://github.com/kobi2187/druid"
+                    licenses { license { name = "MIT" } }
+                }
+            }
+        }
+        repositories {
+            maven {
+                name = "local"
+                url = uri(rootProject.layout.buildDirectory.dir("maven"))
+            }
+        }
     }
 }

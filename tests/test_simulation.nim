@@ -246,13 +246,13 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     expect DruidError: discard camera().takePhoto(path, cameraId = "9")
     let shot = camera().takePhoto(path)
     let ev = only(ekPhoto)
-    check ev.len == 1 and ev[0].photoId == shot.id and ev[0].photoOk and ev[0].photoPath == path
+    check ev.len == 1 and ev[0].photo.id == shot.id and ev[0].photo.ok and ev[0].photo.path == path
     let jpeg = readFile(path)
     check jpeg.len > 1000 and jpeg[0] == '\xFF' and jpeg[1] == '\xD8'
     let bad = camera().takePhoto(getTempDir() / "no-such-dir" / "x.jpg")
     let ev2 = only(ekPhoto)
-    check ev2.len == 1 and ev2[0].photoId == bad.id and not ev2[0].photoOk and
-          "FileNotFoundException" in ev2[0].photoError
+    check ev2.len == 1 and ev2[0].photo.id == bad.id and not ev2[0].photo.ok and
+          "FileNotFoundException" in ev2[0].photo.error
     simulator().useProfile(DeviceProfile(name: "none", apiLevel: 34))
     simulator().grant($apCamera)
     expect DruidError: discard camera().takePhoto(path)
@@ -266,8 +266,8 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     check camera().latestFrame.isNone
     let req = camera().startFrames(width = 320, height = 240)
     let ev = only(ekCamera)
-    check ev.len == 1 and ev[0].cameraRequestId == req.id and ev[0].cameraStarted and
-          ev[0].frameWidth == 320 and ev[0].frameHeight == 240
+    check ev.len == 1 and ev[0].frames.id == req.id and ev[0].frames.started and
+          ev[0].frames.width == 320 and ev[0].frames.height == 240
     check camera().isStreaming
     let f = camera().latestFrame
     check f.isSome and f.get.width == 320 and f.get.height == 240 and f.get.rotation == 90
@@ -292,8 +292,8 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     simulator().reply(7, "on my way")
     check notifications().active.len == 0       # a reply closes it
     var ev = only(ekNotification)
-    check ev.len == 2 and ev[0].interaction == "action" and ev[0].notificationDetail == "read"
-    check ev[1].interaction == "reply" and ev[1].notificationDetail == "on my way" and ev[1].notificationId == 7
+    check ev.len == 2 and ev[0].notification.kind == ikAction and ev[0].notification.actionId == "read"
+    check ev[1].notification.kind == ikReply and ev[1].notification.reply == "on my way" and ev[1].notification.id == 7
     notifications().show(8, "Tap me", "")
     simulator().tapNotification(8)
     check 8 notin notifications().active        # autoCancel
@@ -304,7 +304,7 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     expect ValueError: simulator().dismissNotification(10)
     simulator().dismissNotification(9)
     ev = only(ekNotification)
-    check ev.mapIt((it.notificationId, it.interaction)) == @[(8, "tap"), (9, "tap"), (9, "dismissed")]
+    check ev.mapIt((it.notification.id, it.notification.kind)) == @[(8, ikTap), (9, ikTap), (9, ikDismissed)]
     expect ValueError: simulator().reply(10, "x")   # no reply field
     simulator().useProfile("small")                  # API 28
     notifications().show(1, "Old", "", reply = "Reply")
@@ -321,7 +321,7 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     check only(ekAlarm).len == 0
     simulator().advanceClock(60_500)
     var ev = only(ekAlarm)
-    check ev.len == 1 and ev[0].alarmId == 1 and ev[0].alarmAtMs == t
+    check ev.len == 1 and ev[0].alarm.id == 1 and ev[0].alarm.atMs == t
     check simulator().notificationsShown.mapIt(it.title) == @["Stretch"]
     check alarms().pending == @[2]
     alarms().cancel(2)
@@ -330,7 +330,7 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     alarms().set(3, nowMs() + 3_600_000)
     simulator().fireAlarm(3)
     ev = only(ekAlarm)
-    check ev.len == 1 and ev[0].alarmId == 3 and simulator().notificationsShown.len == 1  # no title: no notification
+    check ev.len == 1 and ev[0].alarm.id == 3 and simulator().notificationsShown.len == 1  # no title: no notification
     simulator().useProfile("small")
     check alarms().canBeExact                         # before Android 12
 
@@ -343,12 +343,12 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     check only(ekJob).len == 0                        # waiting for Wi-Fi
     simulator().setNetwork("wifi")
     var ev = only(ekJob)
-    check ev.len == 1 and ev[0].jobId == 1 and ev[0].jobRanAtMs > 0
+    check ev.len == 1 and ev[0].job.id == 1 and ev[0].job.atMs > 0
     check jobs().scheduled == @[2]                    # once: done
     simulator().advanceClock(15 * 60_000)
     check only(ekJob).len == 0                        # not charging
     simulator().setBattery(50, charging = true)
-    check only(ekJob).mapIt(it.jobId) == @[2]
+    check only(ekJob).mapIt(it.job.id) == @[2]
     check jobs().scheduled == @[2]                    # periodic: again later
     check only(ekJob).len == 0
     simulator().runJob(2)
@@ -364,13 +364,13 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     simulator().openLink("https://example.com/x")
     let ev = only(ekIncoming)
     check ev.len == 2
-    check ev[0].incomingAction == "send" and ev[0].incomingText == "look" and ev[0].incomingSubject == "S"
-    check ev[0].incomingFiles.len == 2 and ev[0].incomingFiles[0] != ev[0].incomingFiles[1]
-    check readFile(ev[0].incomingFiles[1]) == "hello"
-    check ev[0].incomingFiles[0].startsWith(incoming().copiesDir)
-    check ev[1].incomingAction == "view" and ev[1].incomingUrl == "https://example.com/x"
+    check ev[0].incoming.action == iaSend and ev[0].incoming.text == "look" and ev[0].incoming.subject == "S"
+    check ev[0].incoming.files.len == 2 and ev[0].incoming.files[0] != ev[0].incoming.files[1]
+    check readFile(ev[0].incoming.files[1]) == "hello"
+    check ev[0].incoming.files[0].startsWith(incoming().copiesDir)
+    check ev[1].incoming.action == iaView and ev[1].incoming.url == "https://example.com/x"
     incoming().clearCopies()
-    check not fileExists(ev[0].incomingFiles[0])
+    check not fileExists(ev[0].incoming.files[0])
 
   test "BLE scans need a permission and Bluetooth, and report matching devices":
     expect DruidPermissionError: bluetooth().startScan()
@@ -380,17 +380,17 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     bluetooth().startScan()
     check bluetooth().isScanning
     var ev = only(ekBle)
-    check ev.mapIt(it.bleName) == @["Band", "Tag"]
-    check ev[0].bleServices == @["0000180d-0000-1000-8000-00805f9b34fb"] and ev[0].bleRssi == -50
+    check ev.mapIt(it.ble.name) == @["Band", "Tag"]
+    check ev[0].ble.services == @["0000180d-0000-1000-8000-00805f9b34fb"] and ev[0].ble.rssi == -50
     check only(ekBle).len == 0                        # throttled: seen already
     simulator().addBleDevice("AA:BB:CC:00:00:02", "Tag", -40)     # moved closer
     ev = only(ekBle)
-    check ev.len == 1 and ev[0].bleRssi == -40
+    check ev.len == 1 and ev[0].ble.rssi == -40
     bluetooth().startScan(services = ["0000180D-0000-1000-8000-00805F9B34FB"])
-    check only(ekBle).mapIt(it.bleName) == @["Band"]
+    check only(ekBle).mapIt(it.ble.name) == @["Band"]
     simulator().removeBleDevice("AA:BB:CC:00:00:01")
     bluetooth().startScan()
-    check only(ekBle).mapIt(it.bleName) == @["Tag"]
+    check only(ekBle).mapIt(it.ble.name) == @["Tag"]
     bluetooth().stopScan()
     check not bluetooth().isScanning
     simulator().setBluetoothEnabled(false)
@@ -404,11 +404,212 @@ suite "simulated device: camera, notifications, background work, shares, BLE":
     bluetooth().stopScan()
 
   test "the new events parse from the Java side's encoding":
-    check parseEvent(encodeEvent("photo", 3, "ok", "/p.jpg")).photoPath == "/p.jpg"
+    check parseEvent(encodeEvent("photo", 3, "ok", "/p.jpg")).photo.path == "/p.jpg"
     let c = parseEvent(encodeEvent("camera", 4, "started", "1280x720"))
-    check c.kind == ekCamera and c.frameWidth == 1280 and c.frameHeight == 720
-    check not parseEvent(encodeEvent("camera", 4, "error", "boom")).cameraStarted
-    check parseEvent(encodeEvent("ble", "", "", 0, "error:2")).bleError == 2
-    check parseEvent(encodeEvent("job", 1, 1700000000000'i64)).jobRanAtMs == 1700000000000'i64
-    check parseEvent(encodeEvent("incoming", "send", "text/plain", "", "t", "")).incomingFiles.len == 0
+    check c.kind == ekCamera and c.frames.width == 1280 and c.frames.height == 720
+    check not parseEvent(encodeEvent("camera", 4, "error", "boom")).frames.started
+    check parseEvent(encodeEvent("ble", "", "", 0, "error:2")).ble.error == 2
+    check parseEvent(encodeEvent("job", 1, 1700000000000'i64)).job.atMs == 1700000000000'i64
+    check parseEvent(encodeEvent("incoming", "send", "text/plain", "", "t", "")).incoming.files.len == 0
     check parseEvent(encodeEvent("alarm", "x", 1)).kind == ekUnknown
+    let n = parseEvent(encodeEvent("notification", 3, "reply", "ok"))
+    check n.notification.kind == ikReply and n.notification.detail == "ok" and n.notification.actionId == ""
+    check parseEvent(encodeEvent("notification", 3, "wiggled", "")).kind == ekUnknown
+    check parseEvent(encodeEvent("incoming", "edit", "", "", "", "")).kind == ekUnknown
+
+suite "simulated device: foreground, voice, secure store, GATT, NFC, push":
+  setup:
+    simulator().useProfile("phone")
+    resetEventState()
+
+  proc only(kind: DruidEventKind): seq[DruidEvent] =
+    for ev in pollEvents():
+      if ev.kind == kind: result.add ev
+
+  test "a foreground service needs a type on 14+, and the app in front on 12+":
+    simulator().grant($apPostNotifications)
+    foreground().start("Tracking", "0 km")                      # API 34, no type
+    var ev = only(ekForeground)
+    check ev.len == 1 and ev[0].foreground.state == fsError and "type" in ev[0].foreground.error
+    check not foreground().isRunning
+    simulator().lifecycle("paused")
+    expect DruidError: foreground().start("Tracking", "0 km", types = {ftLocation})
+    simulator().lifecycle("resumed")
+    foreground().start("Tracking", "0 km", types = {ftLocation})
+    check foreground().isRunning
+    check simulator().notificationsShown.anyIt(it.title == "Tracking" and it.ongoing)
+    foreground().update("Tracking", "1.2 km", progress = 40)
+    check simulator().notificationsShown.anyIt(it.text == "1.2 km" and it.progress == 40)
+    ev = only(ekForeground)
+    check ev.len == 1 and ev[0].foreground.state == fsStarted      # once, not per update
+    foreground().stop()
+    check not foreground().isRunning and simulator().notificationsShown.len == 0
+    check only(ekForeground).mapIt(it.foreground.state) == @[fsStopped]
+    expect DruidError: foreground().update("x", "y")
+    simulator().useProfile("small")                                   # API 28: no type needed
+    simulator().lifecycle("paused")
+    foreground().start("Upload", "")                                  # and allowed in the background
+    check foreground().isRunning
+
+  test "recording needs RECORD_AUDIO and ends by stop or limit":
+    let path = getTempDir() / "druid_memo.m4a"
+    removeFile(path)
+    expect DruidPermissionError: recorder().start(path)
+    simulator().grant($apRecordAudio)
+    expect DruidError: recorder().start(getTempDir() / "nope-dir" / "x.m4a")
+    recorder().start(path)
+    check recorder().isRecording
+    expect DruidError: recorder().start(path)                         # one at a time
+    simulator().setMicLevel(12000)
+    check recorder().amplitude == 12000
+    simulator().advanceClock(2500)
+    check recorder().stop() == 2500
+    check not recorder().isRecording and recorder().amplitude == 0
+    var ev = only(ekRecording)
+    check ev.len == 1 and ev[0].recording.outcome == roStopped and ev[0].recording.durationMs == 2500
+    check fileExists(path) and readFile(path)[4 .. 7] == "ftyp"
+    expect DruidError: recorder().stop()
+    recorder().start(path, maxDurationMs = 1000)
+    simulator().advanceClock(1500)
+    ev = only(ekRecording)
+    check ev.len == 1 and ev[0].recording.outcome == roLimit and not recorder().isRecording
+
+  test "text to speech opens, speaks, and knows its languages":
+    expect DruidError: discard tts().speak("too early")
+    tts().open()
+    var ev = only(ekTts)
+    check ev.len == 1 and ev[0].tts.step == tsReady and tts().isReady
+    check tts().setLanguage("fr-FR") == lsCountry and tts().setLanguage("en") == lsAvailable
+    check tts().setLanguage("xx-YY") == lsNotSupported
+    let u = tts().speak("Hello from Nim", rate = 1.2)
+    check simulator().spoken == @["Hello from Nim"] and not tts().isSpeaking
+    ev = only(ekTts)
+    check ev.mapIt((it.tts.step, it.tts.utteranceId)) == @[(tsStart, u), (tsDone, u)]
+    tts().stop()
+    tts().close()
+    check not tts().isReady
+
+  test "speech recognition hears what the simulator says":
+    check recognizer().isAvailable
+    expect DruidPermissionError: discard recognizer().start()
+    simulator().grant($apRecordAudio)
+    simulator().setHeard("turn on the lights", "turn off the lights")
+    let r = recognizer().start(language = "en-US")
+    var ev = only(ekSpeech)
+    check ev.mapIt(it.speech.kind) == @[skReady, skPartial, skEnd, skResult]
+    check ev[1].speech.texts == @["turn"] and ev[3].speech.id == r.id
+    check ev[3].speech.texts == @["turn on the lights", "turn off the lights"]
+    discard recognizer().start(partial = false)                       # heard once: now nothing
+    ev = only(ekSpeech)
+    check ev.mapIt(it.speech.kind) == @[skReady, skError] and ev[1].speech.errorCode == 7
+    recognizer().stop()
+    recognizer().cancel()
+    check not recognizer().isListening
+
+  test "the secure store keeps strings and bytes":
+    let s = secureStore()
+    s.clear()
+    check s.getString("token").isNone and not s.contains("token")
+    s.setString("token", "abc.def")
+    s.setBytes("key", [0'u8, 255, 7])
+    check s.getString("token") == some("abc.def")
+    check s.getBytes("key") == some(@[0'u8, 255, 7])
+    s.setString("empty", "")
+    check s.getString("empty") == some("")
+    check s.names == @["empty", "key", "token"]
+    s.remove("token")
+    check not s.contains("token")
+    s.clear()
+    check s.names.len == 0
+
+  test "GATT: connect, discover, read, write, notify":
+    const svc = "0000180d-0000-1000-8000-00805f9b34fb"
+    const hr = "00002a37-0000-1000-8000-00805f9b34fb"
+    const ctl = "00002a39-0000-1000-8000-00805f9b34fb"
+    const name = "00002a00-0000-1000-8000-00805f9b34fb"
+    simulator().addGattCharacteristic("AA:00:00:00:00:01", svc, hr, [0'u8, 72], properties = 2 or 16)
+    simulator().addGattCharacteristic("AA:00:00:00:00:01", svc, ctl, [], properties = 8)
+    simulator().addGattCharacteristic("AA:00:00:00:00:01", svc, name, [], properties = 0)
+    expect DruidPermissionError: discard bluetooth().connect("AA:00:00:00:00:01")
+    simulator().grant($apBluetoothConnect)
+    let c = bluetooth().connect("AA:00:00:00:00:01")
+    var ev = only(ekGatt)
+    check ev.mapIt(it.gatt.kind) == @[gkConnected, gkServices]
+    check ev[1].gatt.characteristics.mapIt(it.uuid) == @[hr, ctl, name]
+    check ev[1].gatt.characteristics[0].properties == 18 and ev[1].gatt.connection == c.id
+    bluetooth().read(c, svc, hr)
+    bluetooth().write(c, svc, ctl, [1'u8])
+    bluetooth().read(c, svc, ctl)                                     # write-only
+    bluetooth().write(c, svc, name, [1'u8])                           # not writable
+    ev = only(ekGatt)
+    check ev.mapIt((it.gatt.kind, it.gatt.status)) == @[(gkRead, 0), (gkWritten, 0), (gkRead, 2), (gkWritten, 3)]
+    check ev[0].gatt.value == @[0'u8, 72]
+    check bluetooth().setNotify(c, svc, hr) and not bluetooth().setNotify(c, svc, ctl)
+    simulator().notifyGatt("AA:00:00:00:00:01", hr, [0'u8, 80])
+    simulator().notifyGatt("AA:00:00:00:00:01", ctl, [9'u8])         # not notifying: nothing
+    ev = only(ekGatt)
+    check ev.len == 1 and ev[0].gatt.kind == gkChanged and ev[0].gatt.value == @[0'u8, 80]
+    bluetooth().setNotify(c, svc, hr, on = false)
+    simulator().notifyGatt("AA:00:00:00:00:01", hr, [0'u8, 81])
+    check only(ekGatt).len == 0
+    bluetooth().requestMtu(c, 1000)
+    check only(ekGatt)[0].gatt.mtu == 517
+    expect DruidError: bluetooth().read(c, svc, "00000000-0000-0000-0000-000000000000")
+    check bluetooth().connections == 1
+    simulator().disconnectGatt("AA:00:00:00:00:01")
+    ev = only(ekGatt)
+    check ev.len == 1 and ev[0].gatt.kind == gkDisconnected and ev[0].gatt.status == 8
+    expect DruidError: bluetooth().read(c, svc, hr)
+    bluetooth().disconnect(c)                                          # already: nothing more
+    check only(ekGatt).len == 0
+    bluetooth().close(c)
+    check bluetooth().connections == 0
+    let unknown = bluetooth().connect("FF:FF:FF:FF:FF:FF")
+    ev = only(ekGatt)
+    check ev.len == 1 and ev[0].gatt.kind == gkDisconnected and ev[0].gatt.status == 133
+    bluetooth().close(unknown)
+    let again = bluetooth().connect("AA:00:00:00:00:01")
+    discard pollEvents()
+    bluetooth().disconnect(again)
+    check only(ekGatt).mapIt(it.gatt.kind) == @[gkDisconnected]
+    simulator().setBluetoothEnabled(false)
+    expect DruidError: discard bluetooth().connect("AA:00:00:00:00:01")
+
+  test "NFC tags while reading":
+    simulator().tapNfcTag("04a1")                                   # not reading: missed
+    check nfc().startReading() and nfc().isReading
+    simulator().tapNfcTag("04a2b3", [("uri", "https://nim-lang.org"), ("text:en", "hi")])
+    let ev = only(ekNfc)
+    check ev.len == 1 and ev[0].nfc.id == "04a2b3" and ev[0].nfc.techs == @["NfcA", "Ndef"]
+    check ev[0].nfc.records == @[NdefEntry(kind: "uri", value: "https://nim-lang.org"),
+                                 NdefEntry(kind: "text:en", value: "hi")]
+    nfc().stopReading()
+    simulator().tapNfcTag("04a3")
+    check only(ekNfc).len == 0 and not nfc().isReading
+    simulator().useProfile("small")                                  # no NFC
+    expect DruidError: discard nfc().startReading()
+
+  test "push: a token, messages, and taps on their notifications":
+    check push().isAvailable
+    push().requestToken()
+    simulator().pushMessage([("chat", "42")], title = "Hi", body = "there")
+    simulator().openPushNotification([("chat", "43")])
+    let ev = only(ekPush)
+    check ev.mapIt(it.push.kind) == @[pkToken, pkMessage, pkOpened]
+    check ev[0].push.token == "simulated-token"
+    check ev[1].push.title == "Hi" and ev[1].push.data == @[(key: "chat", value: "42")]
+    check ev[2].push.data == @[(key: "chat", value: "43")]
+    push().subscribe("news")
+    push().unsubscribe("news")
+    push().deleteToken()
+    check parseEvent(encodeEvent("push", "error", "boom")).push.error == "boom"
+
+  test "the newest events parse":
+    let g = parseEvent(encodeEvent("gatt", 1, "read", "c", 0, "0aff"))
+    check g.gatt.value == @[10'u8, 255]
+    check parseEvent(encodeEvent("gatt", 1, "read", "c", 0, "0af")).kind == ekUnknown
+    check parseEvent(encodeEvent("tts", "error", "", -1)).tts.step == tsFailed
+    check parseEvent(encodeEvent("tts", "error", "u1", -3)).tts.step == tsError
+    check parseEvent(encodeEvent("recording", "limit", "/a.m4a", 1000, "")).recording.durationMs == 1000
+    check parseEvent(encodeEvent("nfc", "01", "")).nfc.techs.len == 0
+    check parseHexBytes("") == newSeq[byte]()

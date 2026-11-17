@@ -4,11 +4,11 @@
 ## ```nim
 ## for ev in pollEvents():
 ##   if ev.kind == ekIncoming:
-##     case ev.incomingAction
-##     of "send":
-##       for path in ev.incomingFiles: importPhoto(path)   # copies, the app's to keep
-##       if ev.incomingText.len > 0: addNote(ev.incomingText)
-##     of "view": openLink(ev.incomingUrl)
+##     case ev.incoming.action
+##     of iaSend:
+##       for path in ev.incoming.files: importPhoto(path)   # copies, the app's to keep
+##       if ev.incoming.text.len > 0: addNote(ev.incoming.text)
+##     of iaView: openLink(ev.incoming.url)
 ## ```
 ##
 ## Android sends only what the app's manifest asks for, with intent filters on

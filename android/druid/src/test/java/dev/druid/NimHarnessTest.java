@@ -746,4 +746,146 @@ public class NimHarnessTest {
         shadowOf(bm.getAdapter()).setEnabled(false);
         assertTrue(cmd("ble.start", "smBalanced", "", 1000).startsWith("ERR DruidError"));
     }
+
+    // ---- foreground, voice, secure store, GATT, NFC, push ----
+
+    @Test public void foregroundService() {
+        assertEquals("ok", cmd("fg.start", "Tracking", "0 km", "ftLocation;ftDataSync"));
+        Intent started = shadowOf(app).getNextStartedService();
+        assertEquals(8 | 1, started.getIntExtra(Foreground.EXTRA_TYPES, 0));
+        org.robolectric.android.controller.ServiceController<DruidForegroundService> c =
+            Robolectric.buildService(DruidForegroundService.class, started).create().startCommand(0, 1);
+        assertEquals("1", cmd("fg.running"));
+        assertEquals("ok", cmd("fg.update", "Tracking", "2 km", 50));
+        assertEquals("ok", cmd("fg.stop"));
+        c.destroy();
+        assertEquals("started,stopped", cmd("fg.events"));
+        assertEquals("0", cmd("fg.running"));
+    }
+
+    @Test public void recording() {
+        String path = new java.io.File(app.getCacheDir(), "nim.m4a").getPath();
+        assertTrue(cmd("rec.start", path, 0).startsWith("ERR DruidPermissionError"));
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO);
+        assertTrue(cmd("rec.start", path, 0).startsWith("1|"));
+        assertTrue(cmd("rec.start", path, 0).startsWith("ERR DruidError"));      // one at a time
+        assertEquals("true", cmd("rec.stop"));
+        assertEquals("0", cmd("rec.recording"));
+        assertEquals("stopped:" + path, cmd("rec.events"));
+    }
+
+    @Test public void textToSpeech() {
+        assertEquals("0", cmd("tts.open"));
+        android.speech.tts.TextToSpeech t = org.robolectric.shadows.ShadowTextToSpeech.getLastTextToSpeechInstance();
+        org.robolectric.shadows.ShadowTextToSpeech st = shadowOf(t);
+        st.getOnInitListener().onInit(android.speech.tts.TextToSpeech.SUCCESS);
+        assertEquals("1|0", cmd("tts.state"));
+        org.robolectric.shadows.ShadowTextToSpeech.addLanguageAvailability(java.util.Locale.GERMANY);
+        assertFalse(cmd("tts.lang", "de-DE").equals("lsNotSupported"));
+        String u = cmd("tts.speak", "Hallo", 1);
+        assertEquals("Hallo", st.getLastSpokenText());
+        st.getUtteranceProgressListener().onDone(u);
+        assertEquals("ready:,done:" + u, cmd("tts.events"));
+        assertEquals("ok", cmd("tts.stop"));
+        assertEquals("0", cmd("tts.close"));
+        org.robolectric.shadows.ShadowTextToSpeech.reset();
+    }
+
+    @Test public void speechRecognition() throws Exception {
+        assertTrue(cmd("sr.available").matches("[01]"));
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO);
+        String id = cmd("sr.start", "en-US", 1);
+        idle();
+        org.robolectric.shadows.ShadowSpeechRecognizer s =
+            Shadow.extract(org.robolectric.shadows.ShadowSpeechRecognizer.getLatestSpeechRecognizer());
+        android.os.Bundle r = new android.os.Bundle();
+        r.putStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION,
+                             new java.util.ArrayList<>(java.util.Arrays.asList("hello", "yellow")));
+        s.triggerOnResults(r);
+        s.triggerOnError(6);
+        assertEquals(id + ":result:hello;yellow:0," + id + ":error::6", cmd("sr.events"));
+        assertEquals("1", cmd("sr.stop"));
+        assertEquals("0", cmd("sr.cancel"));
+    }
+
+    @Test public void secureStore() throws Exception {
+        javax.crypto.KeyGenerator g = javax.crypto.KeyGenerator.getInstance("AES");
+        g.init(256);
+        javax.crypto.SecretKey k = g.generateKey();
+        SecureStore.Keys real = SecureStore.keys;
+        SecureStore.keys = () -> k;
+        try {
+            assertEquals("", cmd("sec.clear"));
+            assertEquals("<none>", cmd("sec.get", "token"));
+            assertEquals("ok", cmd("sec.set", "token", "s3cr3t ✓"));
+            assertEquals("s3cr3t ✓", cmd("sec.get", "token"));
+            assertEquals("ok", cmd("sec.setBytes", "empty", ""));
+            assertEquals("", cmd("sec.getBytes", "empty"));         // present, empty
+            assertEquals("ok", cmd("sec.setBytes", "raw", "00ff10"));
+            assertEquals("00ff10", cmd("sec.getBytes", "raw"));
+            assertEquals("empty,raw,token", cmd("sec.names"));
+            assertEquals("1", cmd("sec.has", "raw"));
+            app.getSharedPreferences("dev.druid.secure", 0).edit().putString("bad", "AAAA").commit();
+            assertEquals("<none>", cmd("sec.getBytes", "bad"));       // undecryptable: absent
+            assertEquals("empty,token", cmd("sec.remove", "raw"));
+            assertEquals("", cmd("sec.clear"));
+        } finally {
+            SecureStore.keys = real;
+        }
+    }
+
+    @Test public void gatt() {
+        BluetoothManager bm = (BluetoothManager) app.getSystemService(Context.BLUETOOTH_SERVICE);
+        shadowOf(bm.getAdapter()).setEnabled(true);
+        String addr = "AA:BB:CC:DD:EE:02";
+        assertTrue(cmd("gatt.connect", addr).startsWith("ERR DruidPermissionError"));
+        shadowOf(app).grantPermissions("android.permission.BLUETOOTH_CONNECT");
+        String id = cmd("gatt.connect", addr);
+        android.bluetooth.BluetoothGatt g = BleGatt.gatt(Integer.parseInt(id));
+        org.robolectric.shadows.ShadowBluetoothGatt sg = Shadow.extract(g);
+        String svc = "0000180d-0000-1000-8000-00805f9b34fb", hr = "00002a37-0000-1000-8000-00805f9b34fb";
+        android.bluetooth.BluetoothGattService s = new android.bluetooth.BluetoothGattService(
+            java.util.UUID.fromString(svc), android.bluetooth.BluetoothGattService.SERVICE_TYPE_PRIMARY);
+        android.bluetooth.BluetoothGattCharacteristic c = new android.bluetooth.BluetoothGattCharacteristic(
+            java.util.UUID.fromString(hr), 2 | 8 | 16, 1 | 16);
+        s.addCharacteristic(c);
+        sg.addDiscoverableService(s);
+        android.bluetooth.BluetoothGattCallback cb = sg.getGattCallback();
+        // Connected: Druid asks for the services, and Robolectric's GATT answers.
+        cb.onConnectionStateChange(g, 0, android.bluetooth.BluetoothProfile.STATE_CONNECTED);
+        assertEquals("connected::0:::0,services::0::" + hr + "/26:0", cmd("gatt.events"));
+        assertEquals("1", cmd("gatt.read", id, svc, hr));
+        cb.onCharacteristicRead(g, c, new byte[] { 0x0a, (byte) 0xff }, 0);
+        assertTrue(cmd("gatt.events").startsWith("read:" + hr + ":0:0aff:"));
+        assertTrue(cmd("gatt.write", id, svc, hr, "01", 1).matches("[01]"));
+        sg.allowCharacteristicNotification(c);
+        assertEquals("1", cmd("gatt.notify", id, svc, hr, 1));
+        assertEquals("ok", cmd("gatt.disconnect", id));
+        assertEquals("0", cmd("gatt.close", id));
+    }
+
+    @Test public void nfcTags() {
+        org.robolectric.shadows.ShadowNfcAdapter.setNfcHardwareExists(true);
+        shadowOf(app.getPackageManager()).setSystemFeature(PackageManager.FEATURE_NFC, true);
+        ActivityController<Activity> c = Robolectric.buildActivity(Activity.class).setup();
+        android.nfc.NfcAdapter a = android.nfc.NfcAdapter.getDefaultAdapter(app);
+        shadowOf(a).setEnabled(true);
+        assertEquals("1", cmd("nfc.start"));
+        NfcReader.report("04a1", "NfcA,Ndef", new android.nfc.NdefMessage(
+            android.nfc.NdefRecord.createUri("https://nim-lang.org")));
+        assertEquals("04a1:NfcA;Ndef:uri=https://nim-lang.org", cmd("nfc.events"));
+        assertEquals("0", cmd("nfc.stop"));
+        c.pause().stop().destroy();
+        org.robolectric.shadows.ShadowNfcAdapter.reset();
+    }
+
+    @Test public void pushWithoutTheModule() {
+        assertEquals("0", cmd("push.available"));                  // druid-fcm is not in this app
+        // Firebase put a message in the launch Intent; the user tapped its notification.
+        Intent tap = new Intent(Intent.ACTION_MAIN).putExtra("google.message_id", "m-7")
+            .putExtra("from", "123").putExtra("chat", "42").putExtra("gcm.n.e", "1");
+        ActivityController<Activity> c = Robolectric.buildActivity(Activity.class, tap).create();
+        assertEquals("opened:m-7:chat=42", cmd("push.events"));
+        c.destroy();
+    }
 }

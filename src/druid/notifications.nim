@@ -15,12 +15,12 @@
 ## notifications().show(7, "New message", "Hi!", actions = [("read", "Mark read")],
 ##                      reply = "Reply")
 ## for ev in pollEvents():
-##   if ev.kind == ekNotification and ev.notificationId == 7:
-##     case ev.interaction
-##     of "tap": openConversation()
-##     of "action": markRead()                 # ev.notificationDetail == "read"
-##     of "reply": send(ev.notificationDetail)
-##     else: discard                           # "dismissed"
+##   if ev.kind == ekNotification and ev.notification.id == 7:
+##     case ev.notification.kind
+##     of ikTap: openConversation()
+##     of ikAction: markRead()                 # ev.notification.actionId == "read"
+##     of ikReply: send(ev.notification.reply)
+##     of ikDismissed: discard
 ## ```
 ##
 ## For a tap to be seen while the app is already open, its Activity passes
