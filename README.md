@@ -44,11 +44,16 @@ See [Developing on the desktop](#developing-on-the-desktop).
 | intents | `intents()` | open URL, share, dial, email, SMS, maps, settings, toasts |
 | prefs | `prefs()` | persistent key-value settings (SharedPreferences) |
 | crypto | `crypto()` | SHA-*, HMAC, secure random, UUID, Base64 |
-| hardware | `telephony()`, `bluetooth()`, `nfc()`, `camera()` | presence/state, camera facts, torch |
-| capture | `camera()` | take a photo to a JPEG file; stream frames (I420, newest only) and convert to RGBA; no camera UI |
+| hardware | `telephony()`, `bluetooth()`, `nfc()`, `camera()` | presence/state, camera facts (ids, facing, flash, orientation), torch |
+| capture | `camera()` (the same accessor, more procs) | take a photo to a JPEG file; stream frames (I420, newest only) and convert to RGBA; no camera UI |
 | background | `alarms()`, `jobs()` | alarms at a time (with a notification, kept across reboots); JobScheduler jobs on network/charging conditions |
 | incoming | `incoming()` | text, files and links other apps share with or open in the app, as events (files copied to the cache) |
-| ble | `bluetooth()` | Bluetooth LE scanning with service filters, throttled per device |
+| ble | `bluetooth()` | Bluetooth LE: scanning with service filters (throttled per device); GATT connect, read, write, notify, MTU |
+| foreground | `foreground()` | a foreground service that keeps the process running, with its notification and type |
+| voice | `recorder()`, `tts()`, `recognizer()` | microphone to .m4a with a level meter; text to speech; speech to text without a dialog |
+| securestore | `secureStore()` | secrets encrypted with AES-256-GCM, the key in the Android Keystore |
+| nfctags | `nfc()` | reading NFC tags (reader mode), NDEF text / URI / MIME records decoded |
+| push | `push()` | Firebase Cloud Messaging through the optional `android/druid-fcm` module: token, messages, topics, opened notifications |
 | media | `player()`, `biometric()`, `downloads()`, `memory()` | audio playback, BiometricPrompt, DownloadManager, memory info |
 | log, ndk | `logInfo` ..., `systemProperty`, `ndkApiLevel` | logcat; NDK-only facts |
 
@@ -92,7 +97,18 @@ simulator().tapNotification(7)              # also pressAction, reply, dismissNo
 simulator().share(text = "hi", files = ["photo.jpg"])   # another app shares; openLink(url)
 simulator().advanceClock(3_600_000)         # an hour passes: alarms and jobs come due
 simulator().addBleDevice("AA:BB:CC:00:00:01", "Band", rssi = -50)
+const hrService = "0000180d-0000-1000-8000-00805f9b34fb"
+const hr = "00002a37-0000-1000-8000-00805f9b34fb"
+simulator().addGattCharacteristic("AA:BB:CC:00:00:01", hrService, hr, [0'u8, 72])
+simulator().notifyGatt("AA:BB:CC:00:00:01", hr, [0'u8, 75])
+simulator().tapNfcTag("04a1b2", [("uri", "https://nim-lang.org")])
+simulator().setHeard("turn on the lights")  # what speech recognition hears next
+simulator().pushMessage([("chat", "42")], title = "New message")
 ```
+
+The camera streams a moving test pattern and photographs a test card;
+recordings are silence as long as the simulated clock ran; text to speech
+prints what it says (`simulator().spoken`).
 
 and see what the app did with `simulator().notificationsShown`, `.vibrations`,
 `.toasts` and `.opened` (links, shares, dial).
@@ -106,11 +122,13 @@ and see what the app did with `simulator().notificationsShown`, `.vibrations`,
 **Real work, same results:** digests and HMACs give the same bytes as
 Android's providers, downloads really download, and prefs persist.
 
-**It is checked against Android:** `tests/conformance.nim` holds 21 scenarios:
+**It is checked against Android:** `tests/conformance.nim` holds 27 scenarios:
 permission allow/deny/already granted, notifications and their taps, buttons,
 replies and dismissals, clipboard, prefs, crypto, connectivity, sensors,
 location, battery, wake locks, argument rules, storage, the camera's
-permission and frames, alarms, jobs, shares and links, and BLE scans. The suite runs on the simulator and, through JNI, on
+permission and frames, alarms, jobs, shares and links, BLE scans, the
+foreground service, recording, the secure store, text to speech, speech
+recognition and NFC tags. The suite runs on the simulator and, through JNI, on
 Robolectric's Android, and both must pass.
 
 ## When the app is not in front
@@ -131,7 +149,19 @@ for ev in pollEvents():
   of ekAlarm: echo "alarm ", ev.alarm.id
   of ekJob: sync()
   of ekIncoming: echo ev.incoming.action, " ", ev.incoming.text, " ", ev.incoming.files
+  of ekPush: echo ev.push.kind, " ", ev.push.data
   else: discard
+```
+
+For work that must go on while the user is elsewhere -- music, a route being
+tracked -- `foreground().start(title, text, types = {ftLocation})` keeps the
+process alive with an ongoing notification. On Android 14+ the app's manifest
+declares the type on Druid's service and the matching permission:
+
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+<service android:name="dev.druid.DruidForegroundService"
+    android:foregroundServiceType="location" tools:node="merge" />
 ```
 
 What launched the Activity (a notification tap, a share, a link) is read when
@@ -240,7 +270,13 @@ makes.
 
 ## Using it from any Android app (Kotlin/Java)
 
-1. Add the `android/druid` library module to your project.
+1. Add the Android library: the `android/druid` module, or the AAR from
+   `tools/publish_maven.sh` (a Maven repository in `android/build/maven`):
+
+```kotlin
+repositories { maven { url = uri("/path/to/druid/android/build/maven") } }
+dependencies { implementation("dev.druid:druid:1.1.0") }
+```
 2. Start Druid from your own JNI entry point. See `examples/sample/sample.nim`
    and `android/sample`:
 
@@ -255,9 +291,20 @@ proc Java_com_example_MainActivity_nativeStart(env: JNIEnvPtr, thiz: jobject, ac
 DRUID_NDK_MAIN=mylib.nim DRUID_NDK_LIB=libmylib.so DRUID_NDK_OUT=app/src/main/jniLibs tools/build_ndk.sh
 ```
 
-Dangerous permissions (camera, location, ...) still have to be declared in
-your app's manifest. Druid's library declares only the normal ones it uses
-(network state, vibrate, wake lock).
+Dangerous permissions (camera, location, microphone, ...) still have to be
+declared in your app's manifest. Druid's library declares only the normal
+ones it uses (network state, vibrate, wake lock, boot completed, foreground
+service).
+
+**Push messages** are optional: add `dev.druid:druid-fcm` (or the
+`android/druid-fcm` module) and the app's Firebase configuration
+(`google-services.json` with the Google Services Gradle plugin). Without it
+`push().isAvailable` is false and the app carries no Firebase code.
+
+**Drawing camera frames:** `examples/camera/camera_preview.nim` shows a live
+preview with raylib: frames from `camera().latestFrame`, `toRgba` into a
+texture, turned by the frame's `rotation`. On the desktop it shows the
+simulated camera.
 
 ## Testing
 
@@ -266,9 +313,9 @@ same stages, one job each.
 
 | Stage | What runs |
 |---|---|
-| `host` | The Nim API without a JVM: `test_host.nim` (event decoding, UTF-8/16, JNI signatures), `test_simulation.nim` (the simulated device follows Android's rules), `test_conformance.nim` (the 21 shared scenarios on the simulator), and `tools/check_api_coverage.py`, which fails if any exported API proc is not called by a test. |
-| `android` | **Robolectric**, with three kinds of test. First, a test class per Java service, each run on Android 7.0, 9, 11, 13 and 16 (API 24/28/30/33/36: 706 runs, 92% line coverage, report under `android/druid/build/reports/coverage/`). Second, the Nim harness built for the host and run through JNI against Robolectric's Android, including the 21 conformance scenarios (arranged with shadows by `Arranger.java`). Third, the sample app's tests. **SDK** 36, AGP 9.1. **NDK** r28c: the sample is built for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and is 16 KB-aligned. |
-| `rui` | `test_rui.nim` drives the demo through RUI's UI harness: buttons, the permission flow, and the desktop permission dialog. The demo is laid out headless, built into `libmain.so` with RUI, and packaged in `android/rui-demo` (Robolectric tests of the RuiActivity/Druid seam). A new app is generated from the template and built and tested. |
+| `host` | The Nim API without a JVM: `test_host.nim` (event decoding, UTF-8/16, JNI signatures), `test_simulation.nim` (the simulated device follows Android's rules), `test_conformance.nim` (the 27 shared scenarios on the simulator), and `tools/check_api_coverage.py`, which fails if any exported API proc is not called by a test. |
+| `android` | **Robolectric**, with three kinds of test. First, a test class per Java service, each run on Android 7.0, 9, 11, 13 and 16 (API 24/28/30/33/36: 706 runs, 92% line coverage, report under `android/druid/build/reports/coverage/`). Second, the Nim harness built for the host and run through JNI against Robolectric's Android, including the 27 conformance scenarios (arranged with shadows by `Arranger.java`). Third, the sample app's and the `druid-fcm` module's tests. **SDK** 36, AGP 9.1. **NDK** r28c: the sample is built for arm64-v8a, armeabi-v7a, x86_64 and x86, with checks that it links only system libraries and is 16 KB-aligned. |
+| `rui` | `test_rui.nim` drives the demo through RUI's UI harness: buttons, the permission flow, and the desktop permission dialog. The demo is laid out headless, built into `libmain.so` with RUI, and packaged in `android/rui-demo` (Robolectric tests of the RuiActivity/Druid seam). A new app is generated from the template and built and tested. The camera-preview example is built and, under Xvfb, run until it shows a frame. |
 
 ### On a device or emulator
 

@@ -37,6 +37,6 @@ export bridge, events, log, ndk, simulator, device, app, permissions, clipboard,
 
 const
   DruidVersionMajor* = 1
-  DruidVersionMinor* = 0
+  DruidVersionMinor* = 1
   DruidVersionPatch* = 0
   DruidVersion* = $DruidVersionMajor & "." & $DruidVersionMinor & "." & $DruidVersionPatch

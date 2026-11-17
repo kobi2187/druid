@@ -734,10 +734,10 @@ proc simGattConn*(id: int): var SimGattConn =
   if id notin state().gattConns:
     raise newException(DruidError, "BleGatt (simulated): java.lang.IllegalArgumentException: no connection " & $id)
   state().gattConns[id]
-proc address*(c: SimGattConn): string = c.address
-proc isOpen*(c: SimGattConn): bool = c.open
-proc setOpen*(c: var SimGattConn, on: bool) = c.open = on
-proc notifying*(c: var SimGattConn): var HashSet[string] = c.notifying
+proc simAddress*(c: SimGattConn): string = c.address
+proc simIsOpen*(c: SimGattConn): bool = c.open
+proc simSetOpen*(c: var SimGattConn, on: bool) = c.open = on
+proc simNotifying*(c: var SimGattConn): var HashSet[string] = c.notifying
 proc simGattClose*(id: int) = state().gattConns.del(id)
 proc simGattCount*(): int = state().gattConns.len
 proc simNfcReading*(): var bool = state().nfcReading

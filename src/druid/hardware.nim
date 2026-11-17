@@ -8,6 +8,11 @@
 ## ```
 ##
 ## On the desktop: the simulated device's (its profile's radios and cameras).
+##
+## More procs on the same accessors live in other modules: `camera()`'s
+## photos and frames in druid/capture, `bluetooth()`'s scanning and GATT in
+## druid/ble, `nfc()`'s tag reading in druid/nfctags. `import druid` brings
+## them all.
 
 import std/tables
 import bridge, simulator

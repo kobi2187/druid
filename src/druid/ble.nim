@@ -73,7 +73,7 @@ proc connect*(b: Bluetooth, address: string, autoConnect = false): GattConnectio
   let id = simGattOpen(address)
   result = GattConnection(id: id)
   if not simKnowsDevice(address):
-    simGattConn(id).setOpen(false)
+    simGattConn(id).simSetOpen(false)
     postLocal encodeEvent("gatt", id, "disconnected", "", 133, "")             # GATT_ERROR
     return
   postLocal encodeEvent("gatt", id, "connected", "", 0, "")
@@ -83,9 +83,9 @@ proc connect*(b: Bluetooth, address: string, autoConnect = false): GattConnectio
 
 proc simChar(c: GattConnection, service, uuid: string): ptr SimGattChar =
   let conn = simGattConn(c.id)
-  if not conn.isOpen:
+  if not conn.simIsOpen:
     raise newException(DruidError, "BleGatt (simulated): not connected")
-  for ch in simGattChars(conn.address).mitems:
+  for ch in simGattChars(conn.simAddress).mitems:
     if ch.service == service and ch.uuid == uuid: return addr ch
   raise newException(DruidError, "BleGatt (simulated): java.lang.IllegalArgumentException: no characteristic " & uuid)
 
@@ -120,8 +120,8 @@ proc setNotify*(_: Bluetooth, c: GattConnection, service, characteristic: string
   if druidStarted(): return callStatic(bool, "BleGatt", "setNotify", c.id, service, characteristic, on)
   let ch = simChar(c, service, characteristic)
   if (ch.properties and (16 or 32)) == 0: return false
-  if on: simGattConn(c.id).notifying.incl characteristic
-  else: simGattConn(c.id).notifying.excl characteristic
+  if on: simGattConn(c.id).simNotifying.incl characteristic
+  else: simGattConn(c.id).simNotifying.excl characteristic
   true
 
 proc requestMtu*(_: Bluetooth, c: GattConnection, mtu: int): bool {.discardable.} =
@@ -136,8 +136,8 @@ proc disconnect*(_: Bluetooth, c: GattConnection) =
   if druidStarted():
     callStatic(void, "BleGatt", "disconnect", c.id)
     return
-  if simGattConn(c.id).isOpen:
-    simGattConn(c.id).setOpen(false)
+  if simGattConn(c.id).simIsOpen:
+    simGattConn(c.id).simSetOpen(false)
     postLocal encodeEvent("gatt", c.id, "disconnected", "", 0, "")
 
 proc close*(_: Bluetooth, c: GattConnection) =

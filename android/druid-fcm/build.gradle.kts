@@ -4,6 +4,7 @@
 // of its own. Without it, `push().isAvailable` is false and nothing else changes.
 plugins {
     id("com.android.library")
+    `maven-publish`
 }
 
 android {
@@ -11,6 +12,9 @@ android {
     compileSdk = 36
     defaultConfig {
         minSdk = 24
+    }
+    publishing {
+        singleVariant("release") { withSourcesJar() }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -47,5 +51,32 @@ tasks.withType<Test>().configureEach {
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+// ../tools/publish_maven.sh: dev.druid:druid-fcm:<druid.version> into android/build/maven,
+// a Maven repository to upload or to point an app's build at.
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                groupId = "dev.druid"
+                artifactId = "druid-fcm"
+                version = providers.gradleProperty("druid.version").get()
+                from(components["release"])
+                pom {
+                    name = "druid-fcm"
+                    description = "Druid's optional push messages (Firebase Cloud Messaging)"
+                    url = "https://github.com/kobi2187/druid"
+                    licenses { license { name = "MIT" } }
+                }
+            }
+        }
+        repositories {
+            maven {
+                name = "local"
+                url = uri(rootProject.layout.buildDirectory.dir("maven"))
+            }
+        }
     }
 }
