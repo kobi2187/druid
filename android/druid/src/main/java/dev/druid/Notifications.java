@@ -69,6 +69,28 @@ public final class Notifications {
                                 String[] actionIds, String[] actionLabels,
                                 String replyLabel, String replyHint) {
         Context c = Druid.context();
+        Notification.Builder b = builder(id, channel, title, text, ongoing, autoCancel, progress);
+        b.setDeleteIntent(DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.DISMISSED, "", false));
+        int n = Math.min(actionIds.length, actionLabels.length);
+        for (int k = 0; k < n; k++) {
+            b.addAction(new Notification.Action.Builder(null, actionLabels[k],
+                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.ACTION, actionIds[k], false)).build());
+        }
+        if (replyLabel != null && !replyLabel.isEmpty() && Build.VERSION.SDK_INT >= 24) {
+            android.app.RemoteInput input = new android.app.RemoteInput.Builder(DruidNotificationReceiver.REPLY_KEY)
+                .setLabel(replyHint == null || replyHint.isEmpty() ? replyLabel : replyHint).build();
+            b.addAction(new Notification.Action.Builder(null, replyLabel,
+                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.REPLY, "", true))
+                .addRemoteInput(input).build());
+        }
+        nm().notify(id, b.build());
+    }
+
+    /** A notification's common parts: channel (made if missing), icon, texts, progress, tap to open the app. */
+    @SuppressWarnings("deprecation")
+    static Notification.Builder builder(int id, String channel, String title, String text,
+                                        boolean ongoing, boolean autoCancel, int progress) {
+        Context c = Druid.context();
         String ch = channel == null || channel.isEmpty() ? DEFAULT_CHANNEL : channel;
         if (Build.VERSION.SDK_INT >= 26 && nm().getNotificationChannel(ch) == null) {
             createChannel(ch, ch.equals(DEFAULT_CHANNEL) ? "Notifications" : ch,
@@ -90,20 +112,7 @@ public final class Notifications {
             b.setContentIntent(PendingIntent.getActivity(c, id, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         }
-        b.setDeleteIntent(DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.DISMISSED, "", false));
-        int n = Math.min(actionIds.length, actionLabels.length);
-        for (int k = 0; k < n; k++) {
-            b.addAction(new Notification.Action.Builder(null, actionLabels[k],
-                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.ACTION, actionIds[k], false)).build());
-        }
-        if (replyLabel != null && !replyLabel.isEmpty() && Build.VERSION.SDK_INT >= 24) {
-            android.app.RemoteInput input = new android.app.RemoteInput.Builder(DruidNotificationReceiver.REPLY_KEY)
-                .setLabel(replyHint == null || replyHint.isEmpty() ? replyLabel : replyHint).build();
-            b.addAction(new Notification.Action.Builder(null, replyLabel,
-                DruidNotificationReceiver.pending(c, id, DruidNotificationReceiver.REPLY, "", true))
-                .addRemoteInput(input).build());
-        }
-        nm().notify(id, b.build());
+        return b;
     }
 
     public static void cancel(int id) { nm().cancel(id); }

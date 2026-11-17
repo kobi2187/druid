@@ -127,10 +127,10 @@ jobs().schedule(2, periodMinutes = 60, network = jnUnmetered)
 
 for ev in pollEvents():
   case ev.kind
-  of ekNotification: echo ev.notificationId, " ", ev.interaction, " ", ev.notificationDetail
-  of ekAlarm: echo "alarm ", ev.alarmId
+  of ekNotification: echo ev.notification.id, " ", ev.notification.kind, " ", ev.notification.detail
+  of ekAlarm: echo "alarm ", ev.alarm.id
   of ekJob: sync()
-  of ekIncoming: echo ev.incomingAction, " ", ev.incomingText, " ", ev.incomingFiles
+  of ekIncoming: echo ev.incoming.action, " ", ev.incoming.text, " ", ev.incoming.files
   else: discard
 ```
 

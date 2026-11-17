@@ -40,6 +40,13 @@ type
     ekJob              ## a background job ran (jobs().schedule)
     ekIncoming         ## another app shared something with this one, or opened a link with it
     ekBle              ## a Bluetooth LE device was seen (bluetooth().startScan)
+    ekForeground       ## the foreground service started, stopped or failed (foreground().start)
+    ekRecording        ## a recording ended (recorder().start)
+    ekTts              ## text to speech: ready, an utterance started, done, failed (tts())
+    ekSpeech           ## speech recognition: ready, partial, result, error, end (recognizer().start)
+    ekGatt             ## a Bluetooth LE connection: connected, services, read, written, changed (bluetooth().connect)
+    ekNfc              ## an NFC tag was read (nfc().startReading)
+    ekPush             ## a push message or a new push token (push(), the druid-fcm module)
     ekUnknown          ## from a newer Java side; `raw` has it
 
   LocationFix* = object
@@ -56,6 +63,127 @@ type
     accuracy*: int           ## SensorManager.SENSOR_STATUS_* (0 unreliable .. 3 high)
     timestampNs*: int64      ## nanoseconds, monotonic (SystemClock.elapsedRealtimeNanos)
     values*: seq[float32]
+
+  PhotoResult* = object
+    id*: int               ## the PhotoRequest's id
+    ok*: bool
+    path*: string          ## the JPEG written, when ok
+    error*: string         ## why not, otherwise
+
+  FrameStream* = object
+    id*: int               ## the FrameRequest's id
+    started*: bool         ## false: it failed (`error` says why) or stopped
+    width*, height*: int   ## the frames' size, when started
+    error*: string
+
+  InteractionKind* = enum
+    ikTap = "tap"              ## the user tapped it: the app opened
+    ikDismissed = "dismissed"  ## swiped away, or cleared
+    ikAction = "action"        ## one of its buttons (`actionId`)
+    ikReply = "reply"          ## its inline reply (`reply`)
+
+  NotificationInteraction* = object
+    id*: int               ## the notification's id
+    kind*: InteractionKind
+    actionId*: string      ## the button's id (ikAction)
+    reply*: string         ## the text typed (ikReply)
+
+  AlarmFired* = object
+    id*: int
+    atMs*: int64           ## when it was set for (Unix ms)
+
+  JobRun* = object
+    id*: int
+    atMs*: int64           ## when it ran (Unix ms)
+
+  IncomingAction* = enum
+    iaSend = "send"        ## shared with the app (ACTION_SEND / SEND_MULTIPLE)
+    iaView = "view"        ## opened with the app (ACTION_VIEW)
+
+  IncomingContent* = object
+    action*: IncomingAction
+    mime*: string
+    subject*, text*: string
+    url*: string           ## a link opened with the app (iaView)
+    files*: seq[string]    ## copies in the cache; "!reason" for one that could not be read
+
+  BleAdvertisement* = object
+    address*, name*: string
+    rssi*: int             ## dBm
+    services*: seq[string] ## advertised service UUIDs
+    error*: int            ## ScanCallback.SCAN_FAILED_* when the scan failed (no address then)
+
+  ForegroundState* = enum
+    fsStarted = "started", fsStopped = "stopped", fsError = "error"
+  ForegroundChange* = object
+    state*: ForegroundState
+    error*: string
+
+  RecordingOutcome* = enum
+    roStopped = "stopped"  ## recorder().stop
+    roLimit = "limit"      ## maxDurationMs was reached
+    roError = "error"
+  RecordingEnd* = object
+    outcome*: RecordingOutcome
+    path*: string
+    durationMs*: int64
+    error*: string
+
+  TtsStep* = enum
+    tsReady = "ready"      ## the engine is ready: speak
+    tsFailed = "failed"    ## the engine could not start
+    tsStart = "start"      ## an utterance began
+    tsDone = "done"        ## ... and finished
+    tsError = "error"      ## ... failed
+    tsStopped = "stopped"  ## ... was cut off (stop, or a flush)
+  TtsProgress* = object
+    step*: TtsStep
+    utteranceId*: string
+    code*: int
+
+  SpeechStepKind* = enum
+    skReady = "ready", skPartial = "partial", skResult = "result", skError = "error", skEnd = "end"
+  SpeechStep* = object
+    id*: int               ## the SpeechRequest's id
+    kind*: SpeechStepKind
+    texts*: seq[string]    ## partial / result: best first, then alternatives
+    errorCode*: int        ## SpeechRecognizer.ERROR_* (7: nothing recognised, 6: silence)
+
+  GattStepKind* = enum
+    gkConnected = "connected", gkDisconnected = "disconnected", gkServices = "services",
+    gkRead = "read", gkWritten = "written", gkChanged = "changed", gkMtu = "mtu"
+  GattCharacteristic* = object
+    service*, uuid*: string
+    properties*: int       ## BluetoothGattCharacteristic.PROPERTY_* bits (2 read, 8 write, 16 notify, ...)
+  GattStep* = object
+    connection*: int       ## the GattConnection's id
+    kind*: GattStepKind
+    characteristic*: string
+    status*: int           ## 0 success; else BluetoothGatt.GATT_* (133 a generic failure)
+    value*: seq[byte]      ## read / changed
+    characteristics*: seq[GattCharacteristic]  ## services
+    mtu*: int
+
+  NdefEntry* = object
+    kind*: string          ## "text:LANG", "uri", a MIME type, or "tnf:N:TYPEHEX"
+    value*: string         ## the text or URI; for the others the payload in hex
+  NfcTag* = object
+    id*: string            ## hex
+    techs*: seq[string]    ## "NfcA", "Ndef", "MifareUltralight", ...
+    records*: seq[NdefEntry]
+
+  PushKind* = enum
+    pkToken = "token"      ## this install's (new) token
+    pkMessage = "message"  ## a message arrived
+    pkOpened = "opened"    ## the user tapped a message's notification (the system showed it)
+    pkError = "error"      ## fetching the token or subscribing failed
+  PushMessage* = object
+    kind*: PushKind
+    token*: string         ## pkToken: the device's new token, for the app's server
+    sender*, messageId*: string
+    title*, body*: string  ## its notification part, if any
+    data*: seq[tuple[key, value: string]]
+    error*: string
 
   DruidEvent* = object
     raw*: string             ## the event as the Java side sent it
@@ -96,38 +224,42 @@ type
       downloadStatus*: int   ## DownloadManager.STATUS_* (8 successful, 16 failed)
       localUri*: string
     of ekPhoto:
-      photoId*: int
-      photoOk*: bool
-      photoPath*: string     ## the JPEG written, when photoOk
-      photoError*: string    ## why not, otherwise
+      photo*: PhotoResult
     of ekCamera:
-      cameraRequestId*: int
-      cameraStarted*: bool   ## false: failed (cameraDetail says why)
-      frameWidth*, frameHeight*: int
-      cameraDetail*: string
+      frames*: FrameStream
     of ekNotification:
-      notificationId*: int
-      interaction*: string   ## "tap", "dismissed", "action", "reply"
-      notificationDetail*: string  ## the action's id, or the reply's text
+      notification*: NotificationInteraction
     of ekAlarm:
-      alarmId*: int
-      alarmAtMs*: int64      ## when it was set for (Unix ms)
+      alarm*: AlarmFired
     of ekJob:
-      jobId*: int
-      jobRanAtMs*: int64
+      job*: JobRun
     of ekIncoming:
-      incomingAction*: string  ## "send" (shared to the app) or "view" (opened with it)
-      incomingMime*: string
-      incomingSubject*, incomingText*: string
-      incomingUrl*: string     ## a link opened with the app
-      incomingFiles*: seq[string]  ## copies in the cache; "!reason" for one that could not be read
+      incoming*: IncomingContent
     of ekBle:
-      bleAddress*, bleName*: string
-      bleRssi*: int          ## dBm
-      bleServices*: seq[string]   ## advertised service UUIDs
-      bleError*: int         ## ScanCallback.SCAN_FAILED_* when the scan failed (bleAddress is "")
+      ble*: BleAdvertisement
+    of ekForeground:
+      foreground*: ForegroundChange
+    of ekRecording:
+      recording*: RecordingEnd
+    of ekTts:
+      tts*: TtsProgress
+    of ekSpeech:
+      speech*: SpeechStep
+    of ekGatt:
+      gatt*: GattStep
+    of ekNfc:
+      nfc*: NfcTag
+    of ekPush:
+      push*: PushMessage
     of ekUnknown:
       discard
+
+proc detail*(n: NotificationInteraction): string =
+  ## The button's id or the reply's text ("" for a tap or a dismissal).
+  case n.kind
+  of ikAction: n.actionId
+  of ikReply: n.reply
+  else: ""
 
 const eventSep* = '\x1f'
 
@@ -148,6 +280,11 @@ proc int64Of(s: string): int64 =
     int64(f)
 
 proc intOf(s: string): int = int(int64Of(s))
+
+proc parseHexBytes*(s: string): seq[byte] =
+  ## "0aff" -> @[10, 255]: how the Java side sends bytes inside an event.
+  if s.len mod 2 != 0: raise newException(ValueError, "odd hex: " & s)
+  for k in countup(0, s.len - 2, 2): result.add byte(parseHexInt(s[k .. k + 1]))
 
 proc parseEvent*(raw: string): DruidEvent =
   ## One event as the Java side encodes it: kind, then fields, separated by
@@ -195,31 +332,87 @@ proc parseEvent*(raw: string): DruidEvent =
                           downloadStatus: intOf(at(2)), localUri: at(3))
     of "photo":
       let ok = at(2) == "ok"
-      result = DruidEvent(kind: ekPhoto, raw: raw, photoId: intOf(at(1)), photoOk: ok,
-                          photoPath: (if ok: at(3) else: ""), photoError: (if ok: "" else: at(3)))
+      result = DruidEvent(kind: ekPhoto, raw: raw, photo: PhotoResult(id: intOf(at(1)), ok: ok,
+        path: (if ok: at(3) else: ""), error: (if ok: "" else: at(3))))
     of "camera":
-      result = DruidEvent(kind: ekCamera, raw: raw, cameraRequestId: intOf(at(1)),
-                          cameraStarted: at(2) == "started", cameraDetail: at(3))
-      if result.cameraStarted:
+      var fs = FrameStream(id: intOf(at(1)), started: at(2) == "started")
+      if fs.started:
         let wh = at(3).split('x')
         if wh.len == 2:
-          result.frameWidth = intOf(wh[0])
-          result.frameHeight = intOf(wh[1])
+          fs.width = intOf(wh[0])
+          fs.height = intOf(wh[1])
+      else: fs.error = at(3)
+      result = DruidEvent(kind: ekCamera, raw: raw, frames: fs)
     of "notification":
-      result = DruidEvent(kind: ekNotification, raw: raw, notificationId: intOf(at(1)),
-                          interaction: at(2), notificationDetail: at(3))
+      let k = parseEnum[InteractionKind](at(2))
+      result = DruidEvent(kind: ekNotification, raw: raw, notification: NotificationInteraction(
+        id: intOf(at(1)), kind: k, actionId: (if k == ikAction: at(3) else: ""),
+        reply: (if k == ikReply: at(3) else: "")))
     of "alarm":
-      result = DruidEvent(kind: ekAlarm, raw: raw, alarmId: intOf(at(1)), alarmAtMs: int64Of(at(2)))
+      result = DruidEvent(kind: ekAlarm, raw: raw, alarm: AlarmFired(id: intOf(at(1)), atMs: int64Of(at(2))))
     of "job":
-      result = DruidEvent(kind: ekJob, raw: raw, jobId: intOf(at(1)), jobRanAtMs: int64Of(at(2)))
+      result = DruidEvent(kind: ekJob, raw: raw, job: JobRun(id: intOf(at(1)), atMs: int64Of(at(2))))
     of "incoming":
-      result = DruidEvent(kind: ekIncoming, raw: raw, incomingAction: at(1), incomingMime: at(2),
-                          incomingSubject: at(3), incomingText: at(4), incomingUrl: at(5))
-      for k in 6 ..< f.len: result.incomingFiles.add f[k]
+      var c = IncomingContent(action: parseEnum[IncomingAction](at(1)), mime: at(2), subject: at(3),
+                              text: at(4), url: at(5))
+      for k in 6 ..< f.len: c.files.add f[k]
+      result = DruidEvent(kind: ekIncoming, raw: raw, incoming: c)
     of "ble":
-      result = DruidEvent(kind: ekBle, raw: raw, bleAddress: at(1), bleName: at(2), bleRssi: intOf(at(3)))
-      if at(4).startsWith("error:"): result.bleError = intOf(at(4)[6 .. ^1])
-      elif at(4).len > 0: result.bleServices = at(4).split(',')
+      var a = BleAdvertisement(address: at(1), name: at(2), rssi: intOf(at(3)))
+      if at(4).startsWith("error:"): a.error = intOf(at(4)[6 .. ^1])
+      elif at(4).len > 0: a.services = at(4).split(',')
+      result = DruidEvent(kind: ekBle, raw: raw, ble: a)
+    of "foreground":
+      result = DruidEvent(kind: ekForeground, raw: raw, foreground: ForegroundChange(
+        state: parseEnum[ForegroundState](at(1)), error: at(2)))
+    of "recording":
+      result = DruidEvent(kind: ekRecording, raw: raw, recording: RecordingEnd(
+        outcome: parseEnum[RecordingOutcome](at(1)), path: at(2), durationMs: int64Of(at(3)), error: at(4)))
+    of "tts":
+      let step = if at(1) == "error" and at(2) == "": tsFailed else: parseEnum[TtsStep](at(1))
+      result = DruidEvent(kind: ekTts, raw: raw, tts: TtsProgress(step: step, utteranceId: at(2),
+                          code: intOf(at(3))))
+    of "speech":
+      var st = SpeechStep(id: intOf(at(1)), kind: parseEnum[SpeechStepKind](at(2)))
+      if st.kind == skError: st.errorCode = intOf(at(3))
+      elif st.kind in {skPartial, skResult}:
+        for k in 3 ..< f.len: st.texts.add f[k]
+      result = DruidEvent(kind: ekSpeech, raw: raw, speech: st)
+    of "gatt":
+      var g = GattStep(connection: intOf(at(1)), kind: parseEnum[GattStepKind](at(2)),
+                       characteristic: at(3), status: intOf(at(4)))
+      case g.kind
+      of gkRead, gkChanged: g.value = parseHexBytes(at(5))
+      of gkMtu: g.mtu = intOf(at(5))
+      of gkServices:
+        for k in 6 ..< f.len:
+          let p = f[k].split('/')
+          if p.len == 3: g.characteristics.add GattCharacteristic(service: p[0], uuid: p[1], properties: intOf(p[2]))
+      else: discard
+      result = DruidEvent(kind: ekGatt, raw: raw, gatt: g)
+    of "nfc":
+      var t = NfcTag(id: at(1))
+      if at(2).len > 0: t.techs = at(2).split(',')
+      var k = 3
+      while k + 1 < f.len:
+        t.records.add NdefEntry(kind: f[k], value: f[k + 1])
+        k += 2
+      result = DruidEvent(kind: ekNfc, raw: raw, nfc: t)
+    of "push":
+      var m = PushMessage(kind: parseEnum[PushKind](at(1)))
+      case m.kind
+      of pkToken: m.token = at(2)
+      of pkError: m.error = at(2)
+      else:
+        m.sender = at(2)
+        m.messageId = at(3)
+        m.title = at(4)
+        m.body = at(5)
+        var k = 6
+        while k + 1 < f.len:
+          m.data.add (f[k], f[k + 1])
+          k += 2
+      result = DruidEvent(kind: ekPush, raw: raw, push: m)
     else:
       result = DruidEvent(kind: ekUnknown, raw: raw)
   except CatchableError:

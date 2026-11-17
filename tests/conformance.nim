@@ -18,9 +18,14 @@
 ## "press N ACTION", "dismiss N", "reply N TEXT" (the user and notification N),
 ## "share TEXT" (another app shares text), "link URL", "fire N" (alarm N goes
 ## off), "run N" (job N runs), "exact on|off" (the exact-alarm grant), "ble
-## ADDRESS RSSI" (an advertisement while scanning), "bluetooth on|off".
+## ADDRESS RSSI" (an advertisement while scanning), "bluetooth on|off",
+## "services" (the system runs the services the app started or stopped),
+## "software keystore" (Robolectric has no Android Keystore), "tts init" and
+## "tts spoken ID" (the engine starts; it said utterance ID), "hear TEXT" and
+## "listened" (what the microphone will hear; the recognizer heard it), "nfc"
+## (NFC hardware, switched on, an Activity in front), "tag ID KIND VALUE".
 
-import std/[options, strutils, tables, os]
+import std/[options, strutils, tables, os, sequtils]
 import ../src/druid
 
 type
@@ -215,8 +220,8 @@ scenario "camera-frames":
   arrange("idle")
   var started = false
   for ev in pollEvents():
-    if ev.kind == ekCamera and ev.cameraRequestId == req.id:
-      started = ev.cameraStarted and ev.frameWidth == 640 and ev.frameHeight == 480
+    if ev.kind == ekCamera and ev.frames.id == req.id:
+      started = ev.frames.started and ev.frames.width == 640 and ev.frames.height == 480
   expect(started, "no ekCamera started 640x480")
   expect(camera().isStreaming, "not streaming")
   camera().stopFrames()
@@ -226,7 +231,7 @@ scenario "camera-frames":
 proc interactions(): seq[string] =
   for ev in pollEvents():
     if ev.kind == ekNotification:
-      result.add $ev.notificationId & " " & ev.interaction & " " & ev.notificationDetail
+      result.add $ev.notification.id & " " & $ev.notification.kind & " " & ev.notification.detail
 
 scenario "notification-interactions":
   arrange("grant POST_NOTIFICATIONS")
@@ -256,7 +261,7 @@ scenario "alarms":
   arrange("fire 31")
   var fired: seq[string]
   for ev in pollEvents():
-    if ev.kind == ekAlarm: fired.add $ev.alarmId & "@" & $(ev.alarmAtMs - at)
+    if ev.kind == ekAlarm: fired.add $ev.alarm.id & "@" & $(ev.alarm.atMs - at)
   expect(fired == @["31@0"], "fired: " & $fired)
   expect(31 in notifications().active, "the alarm's notification")
   expect(alarms().pending == @[32], "pending after firing: " & $alarms().pending)
@@ -272,7 +277,7 @@ scenario "jobs":
   arrange("run 41")
   var ran: seq[int]
   for ev in pollEvents():
-    if ev.kind == ekJob: ran.add ev.jobId
+    if ev.kind == ekJob: ran.add ev.job.id
   expect(ran == @[41], "ran: " & $ran)
   jobs().cancel(42)
   expect(jobs().scheduled == @[41], "after cancel: " & $jobs().scheduled)
@@ -284,8 +289,8 @@ scenario "incoming":
   var got: seq[string]
   for ev in pollEvents():
     if ev.kind == ekIncoming:
-      got.add ev.incomingAction & "|" & ev.incomingMime & "|" & ev.incomingText & "|" & ev.incomingUrl &
-              "|" & $ev.incomingFiles.len
+      got.add $ev.incoming.action & "|" & ev.incoming.mime & "|" & ev.incoming.text & "|" & ev.incoming.url &
+              "|" & $ev.incoming.files.len
   expect(got == @["send|text/plain|hello from elsewhere||0", "view|||https://nim-lang.org/docs|0"], "incoming: " & $got)
 
 scenario "ble":
@@ -297,10 +302,96 @@ scenario "ble":
   arrange("ble AA:BB:CC:DD:EE:01 -55")
   var seen: seq[string]
   for ev in pollEvents():
-    if ev.kind == ekBle: seen.add ev.bleAddress & " " & $ev.bleRssi
+    if ev.kind == ekBle: seen.add ev.ble.address & " " & $ev.ble.rssi
   expect(seen == @["AA:BB:CC:DD:EE:01 -55"], "seen: " & $seen)
   bluetooth().stopScan()
   expect(not bluetooth().isScanning, "scanning after stop")
+
+scenario "foreground":
+  arrange("grant POST_NOTIFICATIONS")
+  foreground().start("Syncing", "3 files", types = {ftDataSync})
+  arrange("services")
+  expect(foreground().isRunning, "not running")
+  foreground().update("Syncing", "2 files", progress = 30)
+  foreground().stop()
+  arrange("services")
+  expect(not foreground().isRunning, "running after stop")
+  var states: seq[ForegroundState]
+  for ev in pollEvents():
+    if ev.kind == ekForeground: states.add ev.foreground.state
+  expect(states == @[fsStarted, fsStopped], "states: " & $states)
+
+scenario "recording":
+  arrange("deny RECORD_AUDIO")
+  let path = storage().cacheDir / "conformance.m4a"
+  var refused = false
+  try: recorder().start(path)
+  except DruidPermissionError: refused = true
+  expect(refused, "recorded without RECORD_AUDIO")
+  arrange("grant RECORD_AUDIO")
+  recorder().start(path)
+  expect(recorder().isRecording, "not recording")
+  refused = false
+  try: recorder().start(path)
+  except DruidError: refused = true
+  expect(refused, "a second recording at once")
+  discard recorder().stop()
+  expect(not recorder().isRecording, "recording after stop")
+  var ends: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekRecording: ends.add $ev.recording.outcome & " " & ev.recording.path
+  expect(ends == @["stopped " & path], "ends: " & $ends)
+
+scenario "secure-store":
+  arrange("software keystore")
+  let s = secureStore()
+  s.clear()
+  s.setString("token", "abc ✓")
+  s.setBytes("raw", [0'u8, 255])
+  expect(s.getString("token") == some("abc ✓"), "token: " & $s.getString("token"))
+  expect(s.getBytes("raw") == some(@[0'u8, 255]), "raw")
+  expect(s.getString("missing").isNone, "missing")
+  expect(s.names == @["raw", "token"], "names: " & $s.names)
+  s.remove("raw")
+  expect(not s.contains("raw"), "removed")
+  s.clear()
+  expect(s.names.len == 0, "cleared")
+
+scenario "tts":
+  tts().open()
+  arrange("tts init")
+  expect(tts().isReady, "not ready")
+  let u = tts().speak("same everywhere")
+  arrange("tts spoken " & u)
+  var steps: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekTts: steps.add $ev.tts.step & " " & ev.tts.utteranceId
+  expect(steps == @["ready ", "start " & u, "done " & u], "steps: " & $steps)
+  tts().close()
+
+scenario "speech":
+  arrange("grant RECORD_AUDIO")
+  arrange("hear open the door")
+  let r = recognizer().start(language = "en-US")
+  arrange("listened")
+  var steps: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekSpeech and ev.speech.id == r.id:
+      steps.add $ev.speech.kind & " " & ev.speech.texts.join("|")
+  expect(steps == @["ready ", "partial open", "end ", "result open the door"], "steps: " & $steps)
+  recognizer().cancel()
+
+scenario "nfc":
+  arrange("nfc")
+  expect(nfc().startReading(), "not reading")
+  arrange("tag 04a1b2 uri https://nim-lang.org")
+  var tags: seq[string]
+  for ev in pollEvents():
+    if ev.kind == ekNfc:
+      tags.add ev.nfc.id & " " & ev.nfc.records.mapIt(it.kind & "=" & it.value).join(",")
+  expect(tags == @["04a1b2 uri=https://nim-lang.org"], "tags: " & $tags)
+  nfc().stopReading()
+  expect(not nfc().isReading, "reading after stop")
 
 proc runScenario*(name: string, arrange: Arrange): string =
   ## "ok", or the problems, one per line.

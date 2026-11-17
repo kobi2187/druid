@@ -3,7 +3,7 @@
 ## ```nim
 ## if not permissions().check(apCamera): discard permissions().request(apCamera)
 ## let shot = camera().takePhoto(storage().cacheDir / "shot.jpg")
-## # later: an ekPhoto event with photoId == shot.id, photoOk, photoPath
+## # later: an ekPhoto event with photo.id == shot.id, photo.ok, photo.path
 ##
 ## discard camera().startFrames(width = 640, height = 480)
 ## # each frame of the app:
@@ -24,9 +24,9 @@ import bridge, events, simulator, hardware
 
 type
   PhotoRequest* = object
-    id*: int               ## the `photoId` of its ekPhoto event
+    id*: int               ## the `photo.id` of its ekPhoto event
   FrameRequest* = object
-    id*: int               ## the `cameraRequestId` of its ekCamera event
+    id*: int               ## the `frames.id` of its ekCamera event
   CameraFrame* = object
     seq*: int64            ## increases with each frame
     width*, height*: int

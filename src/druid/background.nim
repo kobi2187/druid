@@ -10,7 +10,7 @@
 ##
 ## for ev in pollEvents():
 ##   case ev.kind
-##   of ekAlarm: echo "alarm ", ev.alarmId
+##   of ekAlarm: echo "alarm ", ev.alarm.id
 ##   of ekJob: sync()
 ##   else: discard
 ## ```
@@ -25,7 +25,7 @@
 ## `fireAlarm` and `runJob` force them.
 
 import std/[times, tables, algorithm]
-import bridge, simulator
+import bridge, simulator, events
 
 type
   Alarms* = object
@@ -101,3 +101,71 @@ proc scheduled*(_: Jobs): seq[int] =
   if druidStarted(): return callStatic(seq[int], "Jobs", "scheduled")
   for id in simJobs().keys: result.add id
   result.sort
+
+# ---- the foreground service ----
+
+type
+  Foreground* = object
+  ForegroundType* = enum
+    ## The kind of work (ServiceInfo.FOREGROUND_SERVICE_TYPE_*). Android 14+
+    ## requires it, declared on DruidForegroundService in the app's manifest,
+    ## with its permission (FOREGROUND_SERVICE_LOCATION, ...).
+    ftDataSync = 0, ftMediaPlayback = 1, ftPhoneCall = 2, ftLocation = 3,
+    ftConnectedDevice = 4, ftMediaProjection = 5, ftCamera = 6, ftMicrophone = 7,
+    ftHealth = 8, ftRemoteMessaging = 9, ftSystemExempted = 10, ftShortService = 11,
+    ftSpecialUse = 30
+
+proc foreground*(): Foreground = discard
+
+proc start*(_: Foreground, title, text: string, channel = "", types: set[ForegroundType] = {}) =
+  ## Keeps the app's process alive in the background, showing an ongoing
+  ## notification, until `stop`: for music, a route being tracked, an
+  ## upload. An `ekForeground` event says "started" -- or "error" (Android
+  ## 14+ without its type and permission). Raises DruidError when Android 12+
+  ## does not allow it now (the app is not in front). Called again while it
+  ## runs: its notification changes.
+  var bits = 0
+  for t in types: bits = bits or (1 shl ord(t))
+  if druidStarted():
+    callStatic(void, "Foreground", "start", title, text, channel, bits)
+    return
+  let api = simulator().profile.apiLevel
+  if api >= 31 and simLifecycle() in ["paused", "stopped", "destroyed"]:
+    raise newException(DruidError, "Foreground.start (simulated): android.app.ForegroundServiceStartNotAllowedException: " &
+                       "the app is not in front")
+  let fg = addr simForeground()
+  if api >= 34 and types.len == 0:
+    postLocal encodeEvent("foreground", "error",
+      "android.app.MissingForegroundServiceTypeException: Starting FGS without a type")
+    return
+  if simPermissionGranted("android.permission.POST_NOTIFICATIONS"):
+    discard simNotify(SimNotification(id: 0x0D0F_0001, channel: (if channel.len > 0: channel else: "druid_default"),
+                                      title: title, text: text, ongoing: true, progress: -1))
+  if not fg.running: postLocal encodeEvent("foreground", "started", "")
+  fg[] = (true, title, text)
+
+proc update*(_: Foreground, title, text: string, progress = -1) =
+  ## Changes the running service's notification; `progress` 0..100, -1 for none.
+  if druidStarted():
+    callStatic(void, "Foreground", "update", title, text, progress)
+    return
+  let fg = addr simForeground()
+  if not fg.running:
+    raise newException(DruidError, "Foreground.update (simulated): java.lang.IllegalStateException: not running")
+  fg[] = (true, title, text)
+  if simPermissionGranted("android.permission.POST_NOTIFICATIONS"):
+    discard simNotify(SimNotification(id: 0x0D0F_0001, channel: "druid_default", title: title, text: text,
+                                      ongoing: true, progress: min(progress, 100)))
+
+proc stop*(_: Foreground) =
+  if druidStarted():
+    callStatic(void, "Foreground", "stop")
+    return
+  let fg = addr simForeground()
+  if fg.running:
+    fg.running = false
+    simCancelNotification(0x0D0F_0001)
+    postLocal encodeEvent("foreground", "stopped", "")
+
+proc isRunning*(_: Foreground): bool =
+  bridged(simForeground().running): callStatic(bool, "Foreground", "isRunning")

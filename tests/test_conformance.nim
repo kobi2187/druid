@@ -33,6 +33,9 @@ proc simArrange(what: string) =
   of "run": simulator().runJob(parseInt(w[1]))
   of "exact": simulator().setExactAlarmsAllowed(w[1] == "on")
   of "bluetooth": simulator().setBluetoothEnabled(w[1] == "on")
+  of "services", "software", "tts", "listened", "nfc": discard
+  of "hear": simulator().setHeard(w[1 .. ^1].join(" "))
+  of "tag": simulator().tapNfcTag(w[1], [(w[2], w[3])])
   of "ble": simulator().addBleDevice(w[1], rssi = parseInt(w[2]))
   else: raise newException(ValueError, "unknown arrangement " & what)
 

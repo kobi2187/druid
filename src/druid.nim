@@ -29,11 +29,11 @@
 import druid/[bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
               notifications, connectivity, power, storage, display, audio, location,
               sensors, keyboard, intents, prefs, crypto, hardware, media,
-              capture, background, incoming, ble]
+              capture, background, incoming, ble, voice, securestore, nfctags, push]
 export bridge, events, log, ndk, simulator, device, app, permissions, clipboard, vibration,
        notifications, connectivity, power, storage, display, audio, location,
        sensors, keyboard, intents, prefs, crypto, hardware, media,
-       capture, background, incoming, ble
+       capture, background, incoming, ble, voice, securestore, nfctags, push
 
 const
   DruidVersionMajor* = 1
