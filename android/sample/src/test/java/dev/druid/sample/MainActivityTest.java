@@ -49,7 +49,7 @@ public class MainActivityTest {
     @Test public void reportComesFromNim() {
         MainActivity a = Robolectric.buildActivity(MainActivity.class).setup().get();
         String r = a.report.getText().toString();
-        assertTrue(r, r.startsWith("Druid 1.0.0\nAndroid "));
+        assertTrue(r, r.matches("(?s)Druid \\d+\\.\\d+\\.\\d+\nAndroid .*"));     // DruidVersion
         assertTrue(r, r.contains("(API 36)"));
         assertTrue(r, r.contains("App dev.druid.sample 1.0"));
         assertTrue(r, r.contains("Camera permission not granted"));

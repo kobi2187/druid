@@ -94,7 +94,11 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// ../tools/publish_maven.sh: dev.druid:druid:<druid.version> into android/build/maven,
+// Druid's version, from druid.nimble (one place for both halves).
+val druidVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"""")
+    .find(file("../../druid.nimble").readText())!!.groupValues[1]
+
+// ../tools/publish_maven.sh: dev.druid:druid:<version> into android/build/maven,
 // a Maven repository to upload or to point an app's build at.
 afterEvaluate {
     publishing {
@@ -102,7 +106,7 @@ afterEvaluate {
             create<MavenPublication>("release") {
                 groupId = "dev.druid"
                 artifactId = "druid"
-                version = providers.gradleProperty("druid.version").get()
+                version = druidVersion
                 from(components["release"])
                 pom {
                     name = "druid"
