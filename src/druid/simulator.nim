@@ -94,6 +94,16 @@ type
     rssi*: int
     services*: seq[string]
 
+  SimGattChar* = object
+    service*, uuid*: string
+    properties*: int
+    value*: seq[byte]
+
+  SimGattConn = object
+    address: string
+    notifying: HashSet[string]
+    open: bool
+
   PendingRequest = object
     id: int
     perms: seq[string]
@@ -139,6 +149,15 @@ type
     bleScan: tuple[on: bool, services: seq[string]]
     bleReported: HashSet[string]
     clockOffsetMs: int64
+    gattChars: Table[string, seq[SimGattChar]]     # address -> its characteristics
+    gattConns: OrderedTable[int, SimGattConn]
+    nextGatt: int
+    nfcReading: bool
+    heard: seq[string]
+    spoken: seq[string]
+    micLevel: int
+    foreground: tuple[running: bool, title, text: string]
+    pushToken: string
     pollHooks: seq[proc() {.closure.}]
 
 const
@@ -334,6 +353,12 @@ proc advanceClock*(_: Simulator, ms: int64) =
   ## Time passes: alarms and jobs that come due fire at the next `pollEvents`.
   state().clockOffsetMs += ms
 
+proc hexOf(b: openArray[byte]): string =
+  const digits = "0123456789abcdef"
+  for x in b:
+    result.add digits[int(x) shr 4]
+    result.add digits[int(x) and 15]
+
 proc notification(id: int): SimNotification =
   let s = addr state()
   if id notin s.notifications:
@@ -458,6 +483,76 @@ proc addBleDevice*(_: Simulator, address: string, name = "", rssi = -60, service
 proc removeBleDevice*(_: Simulator, address: string) =
   state().bleDevices.del(address)
   state().bleReported.excl address
+
+proc addGattCharacteristic*(_: Simulator, address, service, uuid: string, value: openArray[byte] = [],
+                            properties = 2 or 8 or 16) =
+  ## Characteristic `uuid` of `service` on device `address`, for
+  ## `bluetooth().connect`. `properties`: PROPERTY_* bits (2 read, 8 write, 16 notify).
+  let s = addr state()
+  var list = s.gattChars.getOrDefault(address)
+  list.keepItIf(not (it.service == service and it.uuid == uuid))
+  list.add SimGattChar(service: service, uuid: uuid, properties: properties, value: @value)
+  s.gattChars[address] = list
+
+proc notifyGatt*(_: Simulator, address, uuid: string, value: openArray[byte]) =
+  ## Device `address` changes characteristic `uuid`: a `gkChanged` event on
+  ## each connection that switched its notifications on.
+  let s = addr state()
+  var list = s.gattChars.getOrDefault(address)
+  for c in list.mitems:
+    if c.uuid == uuid: c.value = @value
+  s.gattChars[address] = list
+  for id, c in s.gattConns:
+    if c.open and c.address == address and uuid in c.notifying:
+      postLocal encodeEvent("gatt", id, "changed", uuid, 0, hexOf(value))
+
+proc disconnectGatt*(_: Simulator, address: string) =
+  ## The device goes away (out of range, switched off).
+  for id, c in state().gattConns.mpairs:
+    if c.open and c.address == address:
+      c.open = false
+      postLocal encodeEvent("gatt", id, "disconnected", "", 8, "")      # GATT_CONN_TIMEOUT
+
+proc tapNfcTag*(_: Simulator, id: string, records: openArray[tuple[kind, value: string]] = [],
+                techs: openArray[string] = ["NfcA", "Ndef"]) =
+  ## An NFC tag held to the phone: an `ekNfc` event while the app reads tags.
+  if not state().nfcReading: return
+  var f = @[id, techs.join(",")]
+  for r in records:
+    f.add r.kind
+    f.add r.value
+  postLocal encodeEvent("nfc", f)
+
+proc setHeard*(_: Simulator, texts: varargs[string]) =
+  ## What the microphone hears at the next speech recognition: the best
+  ## guess, then alternatives. Nothing: it hears nothing it recognises.
+  state().heard = @texts
+
+proc spoken*(_: Simulator): seq[string] = state().spoken
+  ## What text to speech said.
+
+proc setMicLevel*(_: Simulator, amplitude: int) =
+  ## The microphone's loudness while recording, 0..32767 (recorder().amplitude).
+  state().micLevel = clamp(amplitude, 0, 32767)
+
+proc pushMessage*(_: Simulator, data: openArray[tuple[key, value: string]], title = "", body = "",
+                  sender = "simulated-sender") =
+  ## A push message arrives (Firebase Cloud Messaging): an `ekPush` event.
+  var f = @["message", sender, "sim-" & $simulator().nowMs, title, body]
+  for (k, v) in data:
+    f.add k
+    f.add v
+  postLocal encodeEvent("push", f)
+
+proc openPushNotification*(_: Simulator, data: openArray[tuple[key, value: string]],
+                           sender = "simulated-sender") =
+  ## The user taps a push message's notification (shown by the system while
+  ## the app was in the background): a pkOpened event with its data.
+  var f = @["opened", sender, "sim-" & $simulator().nowMs, "", ""]
+  for (k, v) in data:
+    f.add k
+    f.add v
+  postLocal encodeEvent("push", f)
 
 proc setBluetoothEnabled*(_: Simulator, on: bool) =
   ## Bluetooth switched off: a running scan stops seeing devices.
@@ -624,3 +719,32 @@ proc simStartBleScan*(services: openArray[string]) =
   s.bleReported.clear()
 proc simStopBleScan*() = state().bleScan.on = false
 proc simBleScanning*(): bool = state().bleScan.on
+proc simGattChars*(address: string): var seq[SimGattChar] =
+  let s = addr state()
+  if address notin s.gattChars: s.gattChars[address] = @[]
+  s.gattChars[address]
+proc simKnowsDevice*(address: string): bool =
+  address in state().bleDevices or address in state().gattChars
+proc simGattOpen*(address: string): int =
+  let s = addr state()
+  inc s.nextGatt
+  s.gattConns[s.nextGatt] = SimGattConn(address: address, open: true)
+  s.nextGatt
+proc simGattConn*(id: int): var SimGattConn =
+  if id notin state().gattConns:
+    raise newException(DruidError, "BleGatt (simulated): java.lang.IllegalArgumentException: no connection " & $id)
+  state().gattConns[id]
+proc simAddress*(c: SimGattConn): string = c.address
+proc simIsOpen*(c: SimGattConn): bool = c.open
+proc simSetOpen*(c: var SimGattConn, on: bool) = c.open = on
+proc simNotifying*(c: var SimGattConn): var HashSet[string] = c.notifying
+proc simGattClose*(id: int) = state().gattConns.del(id)
+proc simGattCount*(): int = state().gattConns.len
+proc simNfcReading*(): var bool = state().nfcReading
+proc simHeard*(): seq[string] = state().heard
+proc simSpeak*(text: string) =
+  state().spoken.add text
+  stderr.writeLine "[tts] ", text
+proc simMicLevel*(): int = state().micLevel
+proc simForeground*(): var tuple[running: bool, title, text: string] = state().foreground
+proc simPushToken*(): var string = state().pushToken

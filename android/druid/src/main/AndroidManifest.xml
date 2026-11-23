@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Alarms and persisted jobs are set again after a reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Foreground (Foreground.start). Android 14+ also wants the permission of
+         the kind of work, e.g. FOREGROUND_SERVICE_LOCATION: the app declares it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <application>
         <!-- Asks for runtime permissions on behalf of any Activity (a
              NativeActivity cannot receive the result) and finishes at once. -->
@@ -30,5 +33,10 @@
             android:name="dev.druid.DruidJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- Keeps the process running while the app works in the background
+             (Foreground). On Android 14+ the app's manifest adds the kind of work:
+             <service android:name="dev.druid.DruidForegroundService"
+                 android:foregroundServiceType="location" tools:node="merge" /> -->
+        <service android:name="dev.druid.DruidForegroundService" android:exported="false" />
     </application>
 </manifest>

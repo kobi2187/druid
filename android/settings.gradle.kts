@@ -17,7 +17,7 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "druid-android"
-include(":druid", ":sample")
+include(":druid", ":druid-fcm", ":sample")
 
 // RUI: -Prui.dir=/path/to/rui2, or RUI_DIR, or a checkout next to this repository.
 val ruiDir = providers.gradleProperty("rui.dir").orNull

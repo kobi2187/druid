@@ -38,7 +38,7 @@ for stage in "${STAGES[@]}"; do
       "$ROOT/tools/build_host_harness.sh"
       "$ROOT/tools/build_ndk.sh"
       (cd "$ROOT/android" && "${GRADLE[@]}" :druid:createDebugUnitTestCoverageReport \
-        :sample:testDebugUnitTest :sample:assembleDebug)
+        :sample:testDebugUnitTest :sample:assembleDebug :druid-fcm:testDebugUnitTest)
       echo "   coverage: android/druid/build/reports/coverage/test/debug/index.html" ;;
     rui)
       RUI_DIR="${RUI_DIR:-$ROOT/../rui2}"
@@ -48,6 +48,15 @@ for stage in "${STAGES[@]}"; do
       export RUI_DIR
       "$ROOT/tools/test_rui.sh"
       "$ROOT/tools/build_rui_demo.sh"
+      # The camera-preview example (raylib): built, and run headless when Xvfb is there.
+      nim c --hints:off --warnings:off --path:"$ROOT/src" --nimcache:"$ROOT/build/nimcache/camera_preview" \
+        -o:"$ROOT/build/camera_preview" "$ROOT/examples/camera/camera_preview.nim"
+      if command -v xvfb-run >/dev/null; then
+        rm -f "$ROOT/build/camera_preview.png"
+        (cd "$ROOT/build" && CAMERA_PREVIEW_SHOT=camera_preview.png timeout 120 \
+          xvfb-run -a -s "-screen 0 480x800x24" ./camera_preview >/dev/null 2>&1)
+        [ -s "$ROOT/build/camera_preview.png" ] || { echo "camera preview showed no frame"; exit 1; }
+      fi
       "$ROOT/tools/build_rui_android.sh"
       (cd "$ROOT/android" && "${GRADLE[@]}" :rui-demo:testDebugUnitTest :rui-demo:assembleDebug)
       # A new app from the template: NDK build, Robolectric tests, APK, desktop layout.

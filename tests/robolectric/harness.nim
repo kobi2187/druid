@@ -277,8 +277,8 @@ cmd "cam.latest":
     j(f.get.seq, f.get.width, f.get.height, f.get.rotation, f.get.i420.len, rgba[0], rgba[1], rgba[2], rgba[3])
 cmd "cam.events":
   pollEvents().filterIt(it.kind in {ekPhoto, ekCamera}).mapIt(
-    if it.kind == ekPhoto: "photo:" & $it.photoId & ":" & b(it.photoOk) & ":" & it.photoPath & it.photoError
-    else: "camera:" & $it.cameraRequestId & ":" & b(it.cameraStarted) & ":" & $it.frameWidth & "x" & $it.frameHeight).join(",")
+    if it.kind == ekPhoto: "photo:" & $it.photo.id & ":" & b(it.photo.ok) & ":" & it.photo.path & it.photo.error
+    else: "camera:" & $it.frames.id & ":" & b(it.frames.started) & ":" & $it.frames.width & "x" & $it.frames.height).join(",")
 
 # ---- notification interactions, alarms, jobs, incoming, BLE ----
 cmd "notif.full":
@@ -286,7 +286,7 @@ cmd "notif.full":
   "ok"
 proc interactions(): string =
   pollEvents().filterIt(it.kind == ekNotification).mapIt(
-    $it.notificationId & ":" & it.interaction & ":" & it.notificationDetail).join(",")
+    $it.notification.id & ":" & $it.notification.kind & ":" & it.notification.detail).join(",")
 cmd "notif.events": interactions()
 cmd "now": $nowMs()
 cmd "alarm.exact": b(alarms().canBeExact)
@@ -296,7 +296,7 @@ cmd "alarm.cancel":
   alarms().cancel(parseInt(a[0]))
   alarms().pending.join(",")
 cmd "alarm.events":
-  pollEvents().filterIt(it.kind == ekAlarm).mapIt($it.alarmId & ":" & $it.alarmAtMs).join(",")
+  pollEvents().filterIt(it.kind == ekAlarm).mapIt($it.alarm.id & ":" & $it.alarm.atMs).join(",")
 cmd "job.schedule":
   b(jobs().schedule(parseInt(a[0]), periodMinutes = parseInt(a[1]), delayMs = parseBiggestInt(a[2]),
                     network = parseEnum[JobNetwork](a[3]), charging = a[4] == "1", persisted = a[5] == "1"))
@@ -307,11 +307,11 @@ cmd "job.cancel":
 cmd "job.cancelAll":
   jobs().cancelAll()
   jobs().scheduled.join(",")
-cmd "job.events": pollEvents().filterIt(it.kind == ekJob).mapIt($it.jobId).join(",")
+cmd "job.events": pollEvents().filterIt(it.kind == ekJob).mapIt($it.job.id).join(",")
 cmd "incoming.events":
   pollEvents().filterIt(it.kind == ekIncoming).mapIt(
-    j(it.incomingAction, it.incomingMime, it.incomingSubject, it.incomingText, it.incomingUrl,
-      it.incomingFiles.join(";"))).join(",")
+    j($it.incoming.action, it.incoming.mime, it.incoming.subject, it.incoming.text, it.incoming.url,
+      it.incoming.files.join(";"))).join(",")
 cmd "incoming.dir": incoming().copiesDir
 cmd "incoming.clear":
   incoming().clearCopies()
@@ -325,7 +325,102 @@ cmd "ble.stop":
   b(bluetooth().isScanning)
 cmd "ble.events":
   pollEvents().filterIt(it.kind == ekBle).mapIt(
-    j(it.bleAddress, it.bleName, it.bleRssi, it.bleServices.join(";"), it.bleError)).join(",")
+    j(it.ble.address, it.ble.name, it.ble.rssi, it.ble.services.join(";"), it.ble.error)).join(",")
+
+# ---- foreground, voice, secure store, GATT, NFC, push ----
+proc kinds[T](evs: seq[DruidEvent], k: DruidEventKind, f: proc(e: DruidEvent): T): string =
+  evs.filterIt(it.kind == k).mapIt($f(it)).join(",")
+cmd "fg.start":
+  var types: set[ForegroundType]
+  for t in a[2].split(';'):
+    if t.len > 0: types.incl parseEnum[ForegroundType](t)
+  foreground().start(a[0], a[1], types = types)
+  "ok"
+cmd "fg.update":
+  foreground().update(a[0], a[1], parseInt(a[2]))
+  "ok"
+cmd "fg.stop":
+  foreground().stop()
+  "ok"
+cmd "fg.running": b(foreground().isRunning)
+cmd "fg.events": pollEvents().kinds(ekForeground, proc(e: DruidEvent): string = $e.foreground.state)
+cmd "rec.start":
+  recorder().start(a[0], maxDurationMs = parseInt(a[1]))
+  j(b(recorder().isRecording), recorder().amplitude)
+cmd "rec.stop": $(recorder().stop() >= 0)
+cmd "rec.recording": b(recorder().isRecording)
+cmd "rec.events":
+  pollEvents().kinds(ekRecording, proc(e: DruidEvent): string = $e.recording.outcome & ":" & e.recording.path)
+cmd "tts.open":
+  tts().open()
+  b(tts().isReady)
+cmd "tts.lang": $tts().setLanguage(a[0])
+cmd "tts.speak": tts().speak(a[0], flush = a[1] == "1")
+cmd "tts.state": j(b(tts().isReady), b(tts().isSpeaking))
+cmd "tts.stop":
+  tts().stop()
+  "ok"
+cmd "tts.close":
+  tts().close()
+  b(tts().isReady)
+cmd "tts.events":
+  pollEvents().kinds(ekTts, proc(e: DruidEvent): string = $e.tts.step & ":" & e.tts.utteranceId)
+cmd "sr.available": b(recognizer().isAvailable)
+cmd "sr.start": $recognizer().start(a[0], a[1] == "1").id
+cmd "sr.stop":
+  recognizer().stop()
+  b(recognizer().isListening)
+cmd "sr.cancel":
+  recognizer().cancel()
+  b(recognizer().isListening)
+cmd "sr.events":
+  pollEvents().kinds(ekSpeech, proc(e: DruidEvent): string =
+    $e.speech.id & ":" & $e.speech.kind & ":" & e.speech.texts.join(";") & ":" & $e.speech.errorCode)
+cmd "sec.set":
+  secureStore().setString(a[0], a[1])
+  "ok"
+cmd "sec.setBytes":
+  secureStore().setBytes(a[0], parseHexBytes(a[1]))
+  "ok"
+cmd "sec.get": secureStore().getString(a[0]).get("<none>")
+cmd "sec.getBytes":
+  let v = secureStore().getBytes(a[0])
+  if v.isNone: "<none>" else: v.get.toHex
+cmd "sec.has": b(secureStore().contains(a[0]))
+cmd "sec.names": secureStore().names.join(",")
+cmd "sec.remove":
+  secureStore().remove(a[0])
+  secureStore().names.join(",")
+cmd "sec.clear":
+  secureStore().clear()
+  secureStore().names.join(",")
+cmd "gatt.connect": $bluetooth().connect(a[0]).id
+cmd "gatt.read": b(bluetooth().read(GattConnection(id: parseInt(a[0])), a[1], a[2]))
+cmd "gatt.write":
+  b(bluetooth().write(GattConnection(id: parseInt(a[0])), a[1], a[2], parseHexBytes(a[3]), a[4] == "1"))
+cmd "gatt.notify": b(bluetooth().setNotify(GattConnection(id: parseInt(a[0])), a[1], a[2], a[3] == "1"))
+cmd "gatt.mtu": b(bluetooth().requestMtu(GattConnection(id: parseInt(a[0])), parseInt(a[1])))
+cmd "gatt.disconnect":
+  bluetooth().disconnect(GattConnection(id: parseInt(a[0])))
+  "ok"
+cmd "gatt.close":
+  bluetooth().close(GattConnection(id: parseInt(a[0])))
+  $bluetooth().connections
+cmd "gatt.events":
+  pollEvents().kinds(ekGatt, proc(e: DruidEvent): string =
+    $e.gatt.kind & ":" & e.gatt.characteristic & ":" & $e.gatt.status & ":" & e.gatt.value.toHex &
+      ":" & e.gatt.characteristics.mapIt(it.uuid & "/" & $it.properties).join(";") & ":" & $e.gatt.mtu)
+cmd "nfc.start": b(nfc().startReading())
+cmd "nfc.stop":
+  nfc().stopReading()
+  b(nfc().isReading)
+cmd "nfc.events":
+  pollEvents().kinds(ekNfc, proc(e: DruidEvent): string =
+    e.nfc.id & ":" & e.nfc.techs.join(";") & ":" & e.nfc.records.mapIt(it.kind & "=" & it.value).join(";"))
+cmd "push.available": b(push().isAvailable)
+cmd "push.events":
+  pollEvents().kinds(ekPush, proc(e: DruidEvent): string =
+    $e.push.kind & ":" & e.push.messageId & ":" & e.push.data.mapIt(it.key & "=" & it.value).join(";"))
 
 # ---- media ----
 cmd "player.open":

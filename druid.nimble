@@ -1,6 +1,6 @@
 # Package
 
-version       = "1.0.0"
+version       = "1.1.0"
 author        = "Kobi"
 description   = "Android's services for Nim programs (RUI apps, games, anything on the NDK), without its GUI"
 license       = "MIT"
